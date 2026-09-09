@@ -13,6 +13,9 @@ export default function TripsList() {
     food_rate: '',
     stay_rate: '',
     snack_rate: '',
+    road_total: '',
+    coach_costs_total: '',
+    coach_fee_total: '',
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -46,13 +49,26 @@ export default function TripsList() {
       food_rate: Number(form.food_rate) || 0,
       stay_rate: Number(form.stay_rate) || 0,
       snack_rate: Number(form.snack_rate) || 0,
+      road_total: Number(form.road_total) || 0,
+      coach_costs_total: Number(form.coach_costs_total) || 0,
+      coach_fee_total: Number(form.coach_fee_total) || 0,
     })
     setSaving(false)
     if (error) {
       setError('Ошибка сохранения: ' + error.message)
       return
     }
-    setForm({ name: '', start_date: '', end_date: '', food_rate: '', stay_rate: '', snack_rate: '' })
+    setForm({
+      name: '',
+      start_date: '',
+      end_date: '',
+      food_rate: '',
+      stay_rate: '',
+      snack_rate: '',
+      road_total: '',
+      coach_costs_total: '',
+      coach_fee_total: '',
+    })
     setShowForm(false)
     loadTrips()
   }
@@ -126,6 +142,30 @@ export default function TripsList() {
                 onChange={(e) => setForm({ ...form, snack_rate: e.target.value })}
               />
             </label>
+            <label>
+              Дорога, всего ₽ (автобус на игры + дорога до города)
+              <input
+                type="number"
+                value={form.road_total}
+                onChange={(e) => setForm({ ...form, road_total: e.target.value })}
+              />
+            </label>
+            <label>
+              Расходы на тренера, всего ₽ (питание+проживание+дорога)
+              <input
+                type="number"
+                value={form.coach_costs_total}
+                onChange={(e) => setForm({ ...form, coach_costs_total: e.target.value })}
+              />
+            </label>
+            <label>
+              Тренерские услуги, всего ₽
+              <input
+                type="number"
+                value={form.coach_fee_total}
+                onChange={(e) => setForm({ ...form, coach_fee_total: e.target.value })}
+              />
+            </label>
           </div>
           {error && <p className="error">{error}</p>}
           <button type="submit" disabled={saving}>
@@ -145,6 +185,7 @@ export default function TripsList() {
               <th>Название</th>
               <th>Даты</th>
               <th>Тарифы (пит./прож./перек.)</th>
+              <th>Дорога / тренер / тренерские</th>
             </tr>
           </thead>
           <tbody>
@@ -158,6 +199,9 @@ export default function TripsList() {
                 </td>
                 <td>
                   {t.food_rate} / {t.stay_rate} / {t.snack_rate}
+                </td>
+                <td>
+                  {t.road_total || 0} / {t.coach_costs_total || 0} / {t.coach_fee_total || 0}
                 </td>
               </tr>
             ))}

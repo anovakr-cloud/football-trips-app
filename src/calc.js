@@ -7,7 +7,17 @@
 // раньше срока (или приезжает позже) — его недополученная доля автоматически
 // перераспределяется на тех, кто присутствует в эти дни.
 //
-// Проезд — индивидуальная фиксированная сумма, не пересчитывается.
+// Проезд — индивидуальная фиксированная сумма, не пересчитывается по дням
+// (можно один раз раскидать поровну от общей суммы "Дорога" кнопкой в
+// интерфейсе, дальше редактируется вручную, например под льготный билет).
+//
+// Дорога (road_total), расходы на тренера (coach_costs_total) и тренерские
+// услуги (coach_fee_total) — общие суммы на поездку, каждая делится поровну
+// на всех игроков поездки (N). Это НЕ дневной тариф, поэтому дни
+// приезда/отъезда игрока на эту долю не влияют — в отличие от
+// питания/проживания/перекуса, доля не пересчитывается по фактическому
+// присутствию по дням, только по количеству игроков в списке.
+//
 // Ручная корректировка — прибавляется/вычитается из итога как есть.
 
 function toDateOnly(d) {
@@ -56,6 +66,10 @@ export function calculateTrip(trip, players) {
     return { day, presentIds: new Set(presentPlayers.map((p) => p.id)), foodPerPerson, stayPerPerson, snackPerPerson }
   })
 
+  // Общие суммы на поездку, поровну на всех игроков (N), без привязки к дням
+  const coachCostsPerPerson = N === 0 ? 0 : (Number(trip.coach_costs_total) || 0) / N
+  const coachFeePerPerson = N === 0 ? 0 : (Number(trip.coach_fee_total) || 0) / N
+
   const results = players.map((p) => {
     let food = 0
     let stay = 0
@@ -68,14 +82,18 @@ export function calculateTrip(trip, players) {
       }
     }
     const travel = Number(p.travel_cost) || 0
+    const coachCosts = coachCostsPerPerson
+    const coachFee = coachFeePerPerson
     const adjustment = Number(p.adjustment) || 0
-    const total = food + stay + snack + travel + adjustment
+    const total = food + stay + snack + travel + coachCosts + coachFee + adjustment
     return {
       ...p,
       food: round2(food),
       stay: round2(stay),
       snack: round2(snack),
       travel: round2(travel),
+      coachCosts: round2(coachCosts),
+      coachFee: round2(coachFee),
       adjustment: round2(adjustment),
       total: round2(total),
     }
@@ -87,10 +105,12 @@ export function calculateTrip(trip, players) {
       stay: acc.stay + r.stay,
       snack: acc.snack + r.snack,
       travel: acc.travel + r.travel,
+      coachCosts: acc.coachCosts + r.coachCosts,
+      coachFee: acc.coachFee + r.coachFee,
       adjustment: acc.adjustment + r.adjustment,
       total: acc.total + r.total,
     }),
-    { food: 0, stay: 0, snack: 0, travel: 0, adjustment: 0, total: 0 }
+    { food: 0, stay: 0, snack: 0, travel: 0, coachCosts: 0, coachFee: 0, adjustment: 0, total: 0 }
   )
   Object.keys(summary).forEach((k) => (summary[k] = round2(summary[k])))
 

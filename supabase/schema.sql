@@ -9,9 +9,12 @@ create table if not exists trips (
   name text not null,
   start_date date not null,
   end_date date not null,
-  food_rate numeric(10,2) not null default 0,      -- питание, руб/чел/день
-  stay_rate numeric(10,2) not null default 0,      -- проживание, руб/чел/день
-  snack_rate numeric(10,2) not null default 0,     -- перекус, руб/чел/день
+  food_rate numeric(10,2) not null default 0,        -- питание, руб/чел/день
+  stay_rate numeric(10,2) not null default 0,        -- проживание, руб/чел/день
+  snack_rate numeric(10,2) not null default 0,       -- перекус, руб/чел/день
+  road_total numeric(10,2) not null default 0,       -- дорога всего на группу (автобус на игры + дорога до города), делится поровну по кнопке "Разделить поровну"
+  coach_costs_total numeric(10,2) not null default 0,-- расходы на тренера всего (питание+проживание+дорога), делится поровну на всех игроков
+  coach_fee_total numeric(10,2) not null default 0,  -- тренерские услуги всего, делится поровну на всех игроков
   notes text,
   created_at timestamptz not null default now()
 );
@@ -21,7 +24,8 @@ create table if not exists players (
   id uuid primary key default gen_random_uuid(),
   trip_id uuid not null references trips(id) on delete cascade,
   full_name text not null,
-  travel_cost numeric(10,2) not null default 0,    -- проезд, индивидуально (льготы и т.п.)
+  birth_date date,                                  -- дата рождения игрока
+  travel_cost numeric(10,2) not null default 0,    -- проезд, индивидуально (льготы и т.п.; заполняется вручную или через "Разделить поровну")
   arrival_date date,                                -- если NULL -> берётся start_date поездки
   departure_date date,                              -- если NULL -> берётся end_date поездки (досрочный отъезд)
   adjustment numeric(10,2) not null default 0,      -- ручная корректировка (может быть отрицательной)
