@@ -620,11 +620,11 @@ export default function TripDetail() {
       {expenseColumns.length === 0 ? (
         <p className="hint">Сначала добавь хотя бы одну статью расходов выше — тогда появится таблица по игрокам.</p>
       ) : (
-        <div style={{ overflowX: 'auto' }}>
+        <div className="table-scroll">
           <table className="players-table">
             <thead>
               <tr>
-                <th>ФИО</th>
+                <th className="sticky-col">ФИО</th>
                 <th>Приезд</th>
                 <th>Отъезд</th>
                 {expenseColumns.map((col) => (
@@ -646,7 +646,7 @@ export default function TripDetail() {
                 return (
                   <Fragment key={tp.id}>
                     <tr>
-                      <td>
+                      <td className="sticky-col">
                         <Link to={`/players/${tp.player_id}`}>{tp.full_name}</Link>
                       </td>
                       <td>
@@ -768,7 +768,7 @@ export default function TripDetail() {
               })}
               {calc && (
                 <tr className="summary-row">
-                  <td colSpan={3}>ИТОГО по поездке</td>
+                  <td colSpan={3} className="sticky-col">ИТОГО по поездке</td>
                   {expenseColumns.map((col) => (
                     <td key={col.id}>{calc.summary.byColumn[col.id] ?? 0}</td>
                   ))}

@@ -106,6 +106,30 @@ th {
 .editing-row td { background: #fffceb; }
 .note-input { margin-top: 4px; width: 100%; }
 
+.table-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+  border-radius: 8px;
+}
+.table-scroll table {
+  border-radius: 0;
+}
+
+.sticky-col {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: white;
+  box-shadow: 2px 0 4px -2px rgba(0, 0, 0, 0.25);
+}
+thead .sticky-col {
+  background: #305496;
+  z-index: 3;
+}
+.summary-row .sticky-col {
+  background: #eef1f8;
+}
+
 .checkbox-cell {
   cursor: pointer;
   text-align: center;
