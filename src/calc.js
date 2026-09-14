@@ -1,122 +1,82 @@
-// Ядро расчёта затрат на поездку.
+// Ядро расчёта затрат на поездку — версия с гибкими статьями расходов.
 //
-// Логика: питание/проживание/перекус считаются как расходы, "забронированные"
-// на всю группу на весь срок поездки. Дневной бюджет по категории =
-// тариф х количество игроков (изначальный состав). Эта сумма распределяется
-// на игроков, фактически присутствующих в конкретный день. Если игрок уезжает
-// раньше срока (или приезжает позже) — его недополученная доля автоматически
-// перераспределяется на тех, кто присутствует в эти дни.
+// Статья расходов бывает двух видов:
+//   'computed' — есть общая сумма (total_amount) и список участников
+//                (participantsByColumn), между которыми она делится поровну,
+//                с округлением в большую сторону до целых рублей. У тех, кто
+//                не включён в статью — просто 0.
+//   'manual'   — значение вписывается вручную по каждому игроку
+//                (valuesByColumn), ни на что автоматически не делится.
 //
-// Проезд — индивидуальная фиксированная сумма, не пересчитывается по дням
-// (можно один раз раскидать поровну от общей суммы "Дорога" кнопкой в
-// интерфейсе, дальше редактируется вручную, например под льготный билет).
-//
-// Дорога (road_total), расходы на тренера (coach_costs_total) и тренерские
-// услуги (coach_fee_total) — общие суммы на поездку, каждая делится поровну
-// на всех игроков поездки (N). Это НЕ дневной тариф, поэтому дни
-// приезда/отъезда игрока на эту долю не влияют — в отличие от
-// питания/проживания/перекуса, доля не пересчитывается по фактическому
-// присутствию по дням, только по количеству игроков в списке.
-//
-// Ручная корректировка — прибавляется/вычитается из итога как есть.
+// Итого по игроку = сумма всех статей (computed + manual).
+// Оплачено = сумма всех его платежей по этой поездке.
+// Долг = Итого − Оплачено (если больше 0), Переплата = Оплачено − Итого
+// (если больше 0). Всё округляется вверх до целых рублей.
 
-function toDateOnly(d) {
-  const dt = new Date(d)
-  dt.setHours(0, 0, 0, 0)
-  return dt
-}
-
-function eachDay(start, end) {
-  const days = []
-  let cur = toDateOnly(start)
-  const last = toDateOnly(end)
-  while (cur <= last) {
-    days.push(new Date(cur))
-    cur = new Date(cur)
-    cur.setDate(cur.getDate() + 1)
-  }
-  return days
-}
-
-function isPresent(player, day, tripStart, tripEnd) {
-  const from = toDateOnly(player.arrival_date || tripStart)
-  const to = toDateOnly(player.departure_date || tripEnd)
-  return day >= from && day <= to
+export function roundUp(n) {
+  const num = Number(n)
+  if (!isFinite(num)) return 0
+  return Math.ceil(num)
 }
 
 /**
- * Считает расходы по каждому игроку для одной поездки.
- * @param {{start_date:string,end_date:string,food_rate:number,stay_rate:number,snack_rate:number}} trip
- * @param {Array<{id:string,full_name:string,travel_cost:number,arrival_date?:string,departure_date?:string,adjustment?:number}>} players
- * @returns {Array} тот же список игроков + {food,stay,snack,total} и сводка
+ * @param {Array<{id:string, full_name:string}>} tripPlayers
+ * @param {Array<{id:string, name:string, kind:'computed'|'manual', total_amount:number|null, item_date?:string|null}>} expenseColumns
+ * @param {Map<string, Set<string>>} participantsByColumn — columnId -> набор tripPlayerId (только для computed)
+ * @param {Map<string, Map<string, number>>} valuesByColumn — columnId -> (tripPlayerId -> сумма) (только для manual)
+ * @param {Map<string, Array<{id:string, amount:number, paid_at:string, note?:string}>>} paymentsByTripPlayer
  */
-export function calculateTrip(trip, players) {
-  const days = eachDay(trip.start_date, trip.end_date)
-  const N = players.length
+export function calculateTrip(
+  tripPlayers,
+  expenseColumns,
+  participantsByColumn,
+  valuesByColumn,
+  paymentsByTripPlayer
+) {
+  // Доля на человека для каждой computed-статьи
+  const columnShare = new Map()
+  for (const col of expenseColumns) {
+    if (col.kind !== 'computed') continue
+    const participants = participantsByColumn.get(col.id) || new Set()
+    const count = participants.size
+    const total = Number(col.total_amount) || 0
+    columnShare.set(col.id, count === 0 ? 0 : roundUp(total / count))
+  }
 
-  // Для каждого дня считаем, кто присутствует, и дневную ставку на человека
-  const perDay = days.map((day) => {
-    const presentPlayers = players.filter((p) =>
-      isPresent(p, day, trip.start_date, trip.end_date)
-    )
-    const presentCount = presentPlayers.length
-    const foodPerPerson = presentCount === 0 ? 0 : (trip.food_rate * N) / presentCount
-    const stayPerPerson = presentCount === 0 ? 0 : (trip.stay_rate * N) / presentCount
-    const snackPerPerson = presentCount === 0 ? 0 : (trip.snack_rate * N) / presentCount
-    return { day, presentIds: new Set(presentPlayers.map((p) => p.id)), foodPerPerson, stayPerPerson, snackPerPerson }
-  })
-
-  // Общие суммы на поездку, поровну на всех игроков (N), без привязки к дням
-  const coachCostsPerPerson = N === 0 ? 0 : (Number(trip.coach_costs_total) || 0) / N
-  const coachFeePerPerson = N === 0 ? 0 : (Number(trip.coach_fee_total) || 0) / N
-
-  const results = players.map((p) => {
-    let food = 0
-    let stay = 0
-    let snack = 0
-    for (const d of perDay) {
-      if (d.presentIds.has(p.id)) {
-        food += d.foodPerPerson
-        stay += d.stayPerPerson
-        snack += d.snackPerPerson
+  const players = tripPlayers.map((tp) => {
+    const byColumn = {}
+    let total = 0
+    for (const col of expenseColumns) {
+      let value = 0
+      if (col.kind === 'computed') {
+        const participants = participantsByColumn.get(col.id) || new Set()
+        value = participants.has(tp.id) ? columnShare.get(col.id) || 0 : 0
+      } else {
+        const values = valuesByColumn.get(col.id)
+        value = values && values.has(tp.id) ? roundUp(values.get(tp.id)) : 0
       }
+      byColumn[col.id] = value
+      total += value
     }
-    const travel = Number(p.travel_cost) || 0
-    const coachCosts = coachCostsPerPerson
-    const coachFee = coachFeePerPerson
-    const adjustment = Number(p.adjustment) || 0
-    const total = food + stay + snack + travel + coachCosts + coachFee + adjustment
-    return {
-      ...p,
-      food: round2(food),
-      stay: round2(stay),
-      snack: round2(snack),
-      travel: round2(travel),
-      coachCosts: round2(coachCosts),
-      coachFee: round2(coachFee),
-      adjustment: round2(adjustment),
-      total: round2(total),
-    }
+    total = roundUp(total)
+
+    const payments = paymentsByTripPlayer.get(tp.id) || []
+    const paid = roundUp(payments.reduce((s, p) => s + (Number(p.amount) || 0), 0))
+    const debt = Math.max(0, roundUp(total - paid))
+    const overpaid = Math.max(0, roundUp(paid - total))
+
+    return { ...tp, byColumn, total, paid, debt, overpaid, payments }
   })
 
-  const summary = results.reduce(
-    (acc, r) => ({
-      food: acc.food + r.food,
-      stay: acc.stay + r.stay,
-      snack: acc.snack + r.snack,
-      travel: acc.travel + r.travel,
-      coachCosts: acc.coachCosts + r.coachCosts,
-      coachFee: acc.coachFee + r.coachFee,
-      adjustment: acc.adjustment + r.adjustment,
-      total: acc.total + r.total,
-    }),
-    { food: 0, stay: 0, snack: 0, travel: 0, coachCosts: 0, coachFee: 0, adjustment: 0, total: 0 }
-  )
-  Object.keys(summary).forEach((k) => (summary[k] = round2(summary[k])))
+  const summary = { total: 0, paid: 0, debt: 0, overpaid: 0, byColumn: {} }
+  for (const col of expenseColumns) summary.byColumn[col.id] = 0
+  for (const r of players) {
+    summary.total += r.total
+    summary.paid += r.paid
+    summary.debt += r.debt
+    summary.overpaid += r.overpaid
+    for (const col of expenseColumns) summary.byColumn[col.id] += r.byColumn[col.id]
+  }
 
-  return { players: results, summary, days: days.length }
-}
-
-function round2(n) {
-  return Math.round(n * 100) / 100
+  return { players, summary, columnShare }
 }

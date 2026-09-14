@@ -3,10 +3,8 @@ import * as XLSX from 'xlsx'
 import { supabase } from '../supabaseClient'
 
 const COL_NAME = 'ФИО'
-const COL_BIRTHDATE = 'Дата рождения'
 const COL_ARRIVAL = 'Дата приезда'
 const COL_DEPARTURE = 'Дата отъезда'
-const COL_TRAVEL = 'Проезд'
 
 function formatDateForDb(value) {
   if (!value && value !== 0) return null
@@ -28,7 +26,9 @@ function formatDateForDb(value) {
   return null
 }
 
-export default function ImportPlayersModal({ tripId, startOrder, onDone, onCancel }) {
+// tripId, startOrder, existingPlayerIds (Set игроков, уже добавленных в эту
+// поездку — такие пропускаются, чтобы не ловить ошибку дубликата), onDone, onCancel
+export default function ImportPlayersModal({ tripId, startOrder, existingPlayerIds, onDone, onCancel }) {
   const [rows, setRows] = useState([])
   const [error, setError] = useState('')
   const [importing, setImporting] = useState(false)
@@ -61,10 +61,8 @@ export default function ImportPlayersModal({ tripId, startOrder, onDone, onCance
           .filter((r) => String(r[COL_NAME] || '').trim() !== '')
           .map((r) => ({
             full_name: String(r[COL_NAME]).trim(),
-            birth_date: formatDateForDb(r[COL_BIRTHDATE]),
             arrival_date: formatDateForDb(r[COL_ARRIVAL]),
             departure_date: formatDateForDb(r[COL_DEPARTURE]),
-            travel_cost: Number(r[COL_TRAVEL]) || 0,
           }))
 
         if (parsed.length === 0) {
@@ -83,36 +81,74 @@ export default function ImportPlayersModal({ tripId, startOrder, onDone, onCance
     if (rows.length === 0) return
     setImporting(true)
     setError('')
-    const toInsert = rows.map((r, i) => ({
-      trip_id: tripId,
-      full_name: r.full_name,
-      birth_date: r.birth_date,
-      travel_cost: r.travel_cost,
-      arrival_date: r.arrival_date,
-      departure_date: r.departure_date,
-      adjustment: 0,
-      sort_order: startOrder + i,
-    }))
-    const { error } = await supabase.from('players').insert(toInsert)
-    setImporting(false)
-    if (error) {
-      setError('Ошибка сохранения: ' + error.message)
+
+    // Подтягиваем текущий состав, чтобы сопоставить по ФИО (без учёта регистра/пробелов)
+    const { data: roster, error: rosterErr } = await supabase.from('roster_players').select('id, full_name')
+    if (rosterErr) {
+      setImporting(false)
+      setError('Ошибка загрузки состава: ' + rosterErr.message)
       return
     }
-    onDone()
+    const rosterByName = new Map((roster || []).map((rp) => [rp.full_name.trim().toLowerCase(), rp.id]))
+
+    let skipped = 0
+    const toInsert = []
+    let order = startOrder
+
+    for (const row of rows) {
+      const key = row.full_name.trim().toLowerCase()
+      let playerId = rosterByName.get(key)
+      if (!playerId) {
+        const { data: created, error: createErr } = await supabase
+          .from('roster_players')
+          .insert({ full_name: row.full_name })
+          .select()
+          .single()
+        if (createErr) {
+          setImporting(false)
+          setError(`Ошибка добавления «${row.full_name}» в состав: ` + createErr.message)
+          return
+        }
+        playerId = created.id
+        rosterByName.set(key, playerId)
+      }
+
+      if (existingPlayerIds && existingPlayerIds.has(playerId)) {
+        skipped += 1
+        continue
+      }
+
+      toInsert.push({
+        trip_id: tripId,
+        player_id: playerId,
+        arrival_date: row.arrival_date,
+        departure_date: row.departure_date,
+        sort_order: order++,
+      })
+    }
+
+    if (toInsert.length > 0) {
+      const { error: insErr } = await supabase.from('trip_players').insert(toInsert)
+      if (insErr) {
+        setImporting(false)
+        setError('Ошибка сохранения: ' + insErr.message)
+        return
+      }
+    }
+
+    setImporting(false)
+    onDone(skipped)
   }
 
   return (
     <div className="card">
       <h3>Импорт игроков из Excel/CSV</h3>
       <p className="hint">
-        Первая строка файла — заголовки столбцов. Обязательный столбец: <b>{COL_NAME}</b>.
-        Необязательные: <b>{COL_BIRTHDATE}</b>, <b>{COL_ARRIVAL}</b>, <b>{COL_DEPARTURE}</b>{' '}
-        (формат ДД.ММ.ГГГГ или дата из Excel — если у игрока даты приезда/отъезда совпадают
-        с общими датами поездки, оставьте пусто), <b>{COL_TRAVEL}</b> (число, руб — если
-        планируете нажать «Разделить дорогу поровну» после импорта, можно оставить пустым).
-        Лишние столбцы игнорируются. Названия столбцов должны совпадать точно, как здесь
-        написано.
+        Первая строка файла — заголовки столбцов. Обязательный столбец: <b>{COL_NAME}</b>. Необязательные:{' '}
+        <b>{COL_ARRIVAL}</b>, <b>{COL_DEPARTURE}</b> (формат ДД.ММ.ГГГГ или дата из Excel — если у игрока
+        даты приезда/отъезда совпадают с общими датами поездки, оставьте пусто). Лишние столбцы игнорируются.
+        Игрок ищется в общем составе по ФИО — если такого ещё нет, он автоматически добавится в состав; если
+        уже есть в этой поездке — будет пропущен, чтобы не задвоить.
       </p>
       <input type="file" accept=".xlsx,.xls,.csv" onChange={handleFile} />
       {error && <p className="error">{error}</p>}
@@ -126,20 +162,16 @@ export default function ImportPlayersModal({ tripId, startOrder, onDone, onCance
             <thead>
               <tr>
                 <th>ФИО</th>
-                <th>Дата рождения</th>
                 <th>Приезд</th>
                 <th>Отъезд</th>
-                <th>Проезд</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((r, i) => (
                 <tr key={i}>
                   <td>{r.full_name}</td>
-                  <td>{r.birth_date || '—'}</td>
                   <td>{r.arrival_date || '—'}</td>
                   <td>{r.departure_date || '—'}</td>
-                  <td>{r.travel_cost}</td>
                 </tr>
               ))}
             </tbody>

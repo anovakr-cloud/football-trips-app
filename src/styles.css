@@ -106,6 +106,25 @@ th {
 .editing-row td { background: #fffceb; }
 .note-input { margin-top: 4px; width: 100%; }
 
+.checkbox-cell {
+  cursor: pointer;
+  text-align: center;
+  user-select: none;
+}
+.checkbox-cell.included {
+  background: #e6f4ea;
+  color: #1a1a1a;
+  font-weight: 600;
+}
+.checkbox-cell.excluded {
+  background: #f4f4f4;
+  color: #aaa;
+}
+.checkbox-cell:hover {
+  outline: 2px solid #2f5fd0;
+  outline-offset: -2px;
+}
+
 .login-screen {
   display: flex;
   align-items: center;

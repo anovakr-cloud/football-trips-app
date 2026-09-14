@@ -6,26 +6,13 @@ export default function TripsList() {
   const [trips, setTrips] = useState([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({
-    name: '',
-    start_date: '',
-    end_date: '',
-    food_rate: '',
-    stay_rate: '',
-    snack_rate: '',
-    road_total: '',
-    coach_costs_total: '',
-    coach_fee_total: '',
-  })
+  const [form, setForm] = useState({ name: '', start_date: '', end_date: '', notes: '' })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
   async function loadTrips() {
     setLoading(true)
-    const { data, error } = await supabase
-      .from('trips')
-      .select('*')
-      .order('start_date', { ascending: false })
+    const { data, error } = await supabase.from('trips').select('*').order('start_date', { ascending: false })
     if (!error) setTrips(data)
     setLoading(false)
   }
@@ -46,29 +33,14 @@ export default function TripsList() {
       name: form.name,
       start_date: form.start_date,
       end_date: form.end_date,
-      food_rate: Number(form.food_rate) || 0,
-      stay_rate: Number(form.stay_rate) || 0,
-      snack_rate: Number(form.snack_rate) || 0,
-      road_total: Number(form.road_total) || 0,
-      coach_costs_total: Number(form.coach_costs_total) || 0,
-      coach_fee_total: Number(form.coach_fee_total) || 0,
+      notes: form.notes || null,
     })
     setSaving(false)
     if (error) {
       setError('Ошибка сохранения: ' + error.message)
       return
     }
-    setForm({
-      name: '',
-      start_date: '',
-      end_date: '',
-      food_rate: '',
-      stay_rate: '',
-      snack_rate: '',
-      road_total: '',
-      coach_costs_total: '',
-      coach_fee_total: '',
-    })
+    setForm({ name: '', start_date: '', end_date: '', notes: '' })
     setShowForm(false)
     loadTrips()
   }
@@ -82,9 +54,10 @@ export default function TripsList() {
       <div className="page-header">
         <h1>Поездки</h1>
         <div>
-          <button onClick={() => setShowForm((v) => !v)}>
-            {showForm ? 'Отмена' : '+ Новая поездка'}
-          </button>
+          <Link to="/players">
+            <button className="secondary">Состав</button>
+          </Link>
+          <button onClick={() => setShowForm((v) => !v)}>{showForm ? 'Отмена' : '+ Новая поездка'}</button>
           <button className="secondary" onClick={handleLogout}>
             Выйти
           </button>
@@ -104,67 +77,15 @@ export default function TripsList() {
             </label>
             <label>
               Дата начала
-              <input
-                type="date"
-                value={form.start_date}
-                onChange={(e) => setForm({ ...form, start_date: e.target.value })}
-              />
+              <input type="date" value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })} />
             </label>
             <label>
               Дата окончания
-              <input
-                type="date"
-                value={form.end_date}
-                onChange={(e) => setForm({ ...form, end_date: e.target.value })}
-              />
+              <input type="date" value={form.end_date} onChange={(e) => setForm({ ...form, end_date: e.target.value })} />
             </label>
             <label>
-              Питание, руб/чел/день
-              <input
-                type="number"
-                value={form.food_rate}
-                onChange={(e) => setForm({ ...form, food_rate: e.target.value })}
-              />
-            </label>
-            <label>
-              Проживание, руб/чел/день
-              <input
-                type="number"
-                value={form.stay_rate}
-                onChange={(e) => setForm({ ...form, stay_rate: e.target.value })}
-              />
-            </label>
-            <label>
-              Перекус, руб/чел/день
-              <input
-                type="number"
-                value={form.snack_rate}
-                onChange={(e) => setForm({ ...form, snack_rate: e.target.value })}
-              />
-            </label>
-            <label>
-              Дорога, всего ₽ (автобус на игры + дорога до города)
-              <input
-                type="number"
-                value={form.road_total}
-                onChange={(e) => setForm({ ...form, road_total: e.target.value })}
-              />
-            </label>
-            <label>
-              Расходы на тренера, всего ₽ (питание+проживание+дорога)
-              <input
-                type="number"
-                value={form.coach_costs_total}
-                onChange={(e) => setForm({ ...form, coach_costs_total: e.target.value })}
-              />
-            </label>
-            <label>
-              Тренерские услуги, всего ₽
-              <input
-                type="number"
-                value={form.coach_fee_total}
-                onChange={(e) => setForm({ ...form, coach_fee_total: e.target.value })}
-              />
+              Заметка (необязательно)
+              <input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
             </label>
           </div>
           {error && <p className="error">{error}</p>}
@@ -173,6 +94,11 @@ export default function TripsList() {
           </button>
         </form>
       )}
+
+      <p className="hint">
+        Статьи расходов (питание, дорога, тренерские и любые другие) задаются отдельно для каждой поездки —
+        на её собственной странице, после создания.
+      </p>
 
       {loading ? (
         <p>Загрузка...</p>
@@ -184,8 +110,7 @@ export default function TripsList() {
             <tr>
               <th>Название</th>
               <th>Даты</th>
-              <th>Тарифы (пит./прож./перек.)</th>
-              <th>Дорога / тренер / тренерские</th>
+              <th>Заметка</th>
             </tr>
           </thead>
           <tbody>
@@ -197,12 +122,7 @@ export default function TripsList() {
                 <td>
                   {t.start_date} — {t.end_date}
                 </td>
-                <td>
-                  {t.food_rate} / {t.stay_rate} / {t.snack_rate}
-                </td>
-                <td>
-                  {t.road_total || 0} / {t.coach_costs_total || 0} / {t.coach_fee_total || 0}
-                </td>
+                <td className="muted">{t.notes || '—'}</td>
               </tr>
             ))}
           </tbody>

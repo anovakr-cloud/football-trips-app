@@ -1,47 +1,134 @@
-import { useEffect, useState, useMemo } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
-import { calculateTrip } from '../calc'
+import { calculateTrip, roundUp } from '../calc'
+import { exportTripToExcel } from '../exportExcel'
 import ImportPlayersModal from '../components/ImportPlayersModal'
-
-const emptyPlayer = {
-  full_name: '',
-  birth_date: '',
-  travel_cost: '',
-  arrival_date: '',
-  departure_date: '',
-  adjustment: '',
-  adjustment_note: '',
-}
 
 export default function TripDetail() {
   const { tripId } = useParams()
   const [trip, setTrip] = useState(null)
-  const [players, setPlayers] = useState([])
+  const [tripPlayers, setTripPlayers] = useState([]) // {id, player_id, full_name, arrival_date, departure_date}
+  const [expenseColumns, setExpenseColumns] = useState([])
+  const [participantsByColumn, setParticipantsByColumn] = useState(new Map())
+  const [valuesByColumn, setValuesByColumn] = useState(new Map())
+  const [paymentsByTripPlayer, setPaymentsByTripPlayer] = useState(new Map())
+  const [rosterOptions, setRosterOptions] = useState([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
   const [editingTrip, setEditingTrip] = useState(false)
   const [tripForm, setTripForm] = useState(null)
-  const [newPlayer, setNewPlayer] = useState(emptyPlayer)
+
+  const [newColumnKind, setNewColumnKind] = useState(null) // 'computed' | 'manual' | null
+  const [newColumnForm, setNewColumnForm] = useState({ name: '', item_date: '', total_amount: '' })
+
+  const [editingColumnId, setEditingColumnId] = useState(null)
+  const [editColumnForm, setEditColumnForm] = useState(null)
+
+  const [manualDraft, setManualDraft] = useState({}) // `${columnId}:${tripPlayerId}` -> string
+  const [fillDraft, setFillDraft] = useState({}) // columnId -> string
+
+  const [expandedPaymentsFor, setExpandedPaymentsFor] = useState(null)
+  const [newPaymentForm, setNewPaymentForm] = useState({ amount: '', paid_at: '', note: '' })
+
   const [showImport, setShowImport] = useState(false)
-  const [editingPlayerId, setEditingPlayerId] = useState(null)
-  const [editPlayerForm, setEditPlayerForm] = useState(null)
-  const [error, setError] = useState('')
+  const [addPlayerName, setAddPlayerName] = useState('')
 
   async function loadAll() {
     setLoading(true)
+    setError('')
+
     const { data: tripData, error: tripErr } = await supabase
       .from('trips')
       .select('*')
       .eq('id', tripId)
       .single()
-    const { data: playersData, error: playersErr } = await supabase
-      .from('players')
+    if (tripErr) {
+      setError('Ошибка загрузки поездки: ' + tripErr.message)
+      setLoading(false)
+      return
+    }
+    setTrip(tripData)
+
+    const { data: tpData, error: tpErr } = await supabase
+      .from('trip_players')
+      .select('id, player_id, arrival_date, departure_date, sort_order, roster_players(full_name)')
+      .eq('trip_id', tripId)
+      .order('sort_order', { ascending: true })
+    if (tpErr) {
+      setError('Ошибка загрузки игроков: ' + tpErr.message)
+      setLoading(false)
+      return
+    }
+    const players = (tpData || []).map((tp) => ({
+      id: tp.id,
+      player_id: tp.player_id,
+      full_name: tp.roster_players?.full_name || '(без имени)',
+      arrival_date: tp.arrival_date,
+      departure_date: tp.departure_date,
+    }))
+    setTripPlayers(players)
+
+    const { data: colData, error: colErr } = await supabase
+      .from('expense_columns')
       .select('*')
       .eq('trip_id', tripId)
       .order('sort_order', { ascending: true })
+    if (colErr) {
+      setError('Ошибка загрузки статей расходов: ' + colErr.message)
+      setLoading(false)
+      return
+    }
+    setExpenseColumns(colData || [])
 
-    if (!tripErr) setTrip(tripData)
-    if (!playersErr) setPlayers(playersData || [])
+    const columnIds = (colData || []).map((c) => c.id)
+    const tripPlayerIds = players.map((p) => p.id)
+
+    let participantsMap = new Map()
+    let valuesMap = new Map()
+    if (columnIds.length > 0) {
+      const { data: partData } = await supabase
+        .from('expense_participants')
+        .select('column_id, trip_player_id')
+        .in('column_id', columnIds)
+      for (const row of partData || []) {
+        if (!participantsMap.has(row.column_id)) participantsMap.set(row.column_id, new Set())
+        participantsMap.get(row.column_id).add(row.trip_player_id)
+      }
+
+      const { data: valData } = await supabase
+        .from('expense_values')
+        .select('column_id, trip_player_id, amount')
+        .in('column_id', columnIds)
+      for (const row of valData || []) {
+        if (!valuesMap.has(row.column_id)) valuesMap.set(row.column_id, new Map())
+        valuesMap.get(row.column_id).set(row.trip_player_id, Number(row.amount) || 0)
+      }
+    }
+    setParticipantsByColumn(participantsMap)
+    setValuesByColumn(valuesMap)
+
+    let paymentsMap = new Map()
+    if (tripPlayerIds.length > 0) {
+      const { data: payData } = await supabase
+        .from('payments')
+        .select('*')
+        .in('trip_player_id', tripPlayerIds)
+        .order('paid_at', { ascending: true })
+      for (const row of payData || []) {
+        if (!paymentsMap.has(row.trip_player_id)) paymentsMap.set(row.trip_player_id, [])
+        paymentsMap.get(row.trip_player_id).push(row)
+      }
+    }
+    setPaymentsByTripPlayer(paymentsMap)
+
+    const { data: rosterData } = await supabase
+      .from('roster_players')
+      .select('id, full_name')
+      .order('full_name', { ascending: true })
+    setRosterOptions(rosterData || [])
+
     setLoading(false)
   }
 
@@ -51,87 +138,20 @@ export default function TripDetail() {
   }, [tripId])
 
   const calc = useMemo(() => {
-    if (!trip || players.length === 0) return null
-    return calculateTrip(trip, players)
-  }, [trip, players])
+    if (!tripPlayers.length) return null
+    return calculateTrip(tripPlayers, expenseColumns, participantsByColumn, valuesByColumn, paymentsByTripPlayer)
+  }, [tripPlayers, expenseColumns, participantsByColumn, valuesByColumn, paymentsByTripPlayer])
 
-  async function handleAddPlayer(e) {
-    e.preventDefault()
-    setError('')
-    if (!newPlayer.full_name) {
-      setError('Укажите ФИО игрока')
-      return
-    }
-    const { error } = await supabase.from('players').insert({
-      trip_id: tripId,
-      full_name: newPlayer.full_name,
-      birth_date: newPlayer.birth_date || null,
-      travel_cost: Number(newPlayer.travel_cost) || 0,
-      arrival_date: newPlayer.arrival_date || null,
-      departure_date: newPlayer.departure_date || null,
-      adjustment: Number(newPlayer.adjustment) || 0,
-      adjustment_note: newPlayer.adjustment_note || null,
-      sort_order: players.length,
-    })
-    if (error) {
-      setError('Ошибка сохранения: ' + error.message)
-      return
-    }
-    setNewPlayer(emptyPlayer)
-    loadAll()
-  }
+  const resultsByTripPlayerId = calc ? Object.fromEntries(calc.players.map((r) => [r.id, r])) : {}
 
-  async function handleDeletePlayer(id) {
-    if (!confirm('Удалить игрока из этой поездки?')) return
-    await supabase.from('players').delete().eq('id', id)
-    loadAll()
-  }
-
-  function startEditPlayer(p) {
-    setEditingPlayerId(p.id)
-    setEditPlayerForm({
-      full_name: p.full_name,
-      birth_date: p.birth_date || '',
-      travel_cost: p.travel_cost,
-      arrival_date: p.arrival_date || '',
-      departure_date: p.departure_date || '',
-      adjustment: p.adjustment,
-      adjustment_note: p.adjustment_note || '',
-    })
-  }
-
-  async function saveEditPlayer(id) {
-    const { error } = await supabase
-      .from('players')
-      .update({
-        full_name: editPlayerForm.full_name,
-        birth_date: editPlayerForm.birth_date || null,
-        travel_cost: Number(editPlayerForm.travel_cost) || 0,
-        arrival_date: editPlayerForm.arrival_date || null,
-        departure_date: editPlayerForm.departure_date || null,
-        adjustment: Number(editPlayerForm.adjustment) || 0,
-        adjustment_note: editPlayerForm.adjustment_note || null,
-      })
-      .eq('id', id)
-    if (error) {
-      setError('Ошибка сохранения: ' + error.message)
-      return
-    }
-    setEditingPlayerId(null)
-    loadAll()
-  }
+  // ---------- Параметры поездки ----------
 
   function startEditTrip() {
     setTripForm({
       name: trip.name,
       start_date: trip.start_date,
       end_date: trip.end_date,
-      food_rate: trip.food_rate,
-      stay_rate: trip.stay_rate,
-      snack_rate: trip.snack_rate,
-      road_total: trip.road_total,
-      coach_costs_total: trip.coach_costs_total,
-      coach_fee_total: trip.coach_fee_total,
+      notes: trip.notes || '',
     })
     setEditingTrip(true)
   }
@@ -143,12 +163,7 @@ export default function TripDetail() {
         name: tripForm.name,
         start_date: tripForm.start_date,
         end_date: tripForm.end_date,
-        food_rate: Number(tripForm.food_rate) || 0,
-        stay_rate: Number(tripForm.stay_rate) || 0,
-        snack_rate: Number(tripForm.snack_rate) || 0,
-        road_total: Number(tripForm.road_total) || 0,
-        coach_costs_total: Number(tripForm.coach_costs_total) || 0,
-        coach_fee_total: Number(tripForm.coach_fee_total) || 0,
+        notes: tripForm.notes || null,
       })
       .eq('id', tripId)
     if (error) {
@@ -159,39 +174,241 @@ export default function TripDetail() {
     loadAll()
   }
 
-  async function splitRoadEvenly() {
-    if (players.length === 0) return
-    const total = Number(trip.road_total) || 0
-    const per = players.length === 0 ? 0 : round2(total / players.length)
-    if (
-      !confirm(
-        `Разделить ${total} ₽ поровну на ${players.length} игроков (по ${per} ₽) и записать в поле "Проезд" каждому? Текущие значения "Проезд" будут перезаписаны.`
-      )
-    ) {
+  // ---------- Статьи расходов ----------
+
+  function openNewColumnForm(kind) {
+    setNewColumnKind(kind)
+    setNewColumnForm({ name: '', item_date: '', total_amount: '' })
+  }
+
+  async function submitNewColumn(e) {
+    e.preventDefault()
+    if (!newColumnForm.name.trim()) {
+      setError('Укажите название статьи')
       return
     }
     setError('')
-    const results = await Promise.all(
-      players.map((p) => supabase.from('players').update({ travel_cost: per }).eq('id', p.id))
-    )
-    const failed = results.find((r) => r.error)
-    if (failed) {
-      setError('Ошибка сохранения: ' + failed.error.message)
+    const { error } = await supabase.from('expense_columns').insert({
+      trip_id: tripId,
+      name: newColumnForm.name.trim(),
+      kind: newColumnKind,
+      item_date: newColumnForm.item_date || null,
+      total_amount: newColumnKind === 'computed' ? Number(newColumnForm.total_amount) || 0 : null,
+      sort_order: expenseColumns.length,
+    })
+    if (error) {
+      setError('Ошибка сохранения: ' + error.message)
+      return
+    }
+    setNewColumnKind(null)
+    loadAll()
+  }
+
+  function startEditColumn(col) {
+    setEditingColumnId(col.id)
+    setEditColumnForm({
+      name: col.name,
+      item_date: col.item_date || '',
+      total_amount: col.total_amount ?? '',
+    })
+  }
+
+  async function saveEditColumn(col) {
+    const { error } = await supabase
+      .from('expense_columns')
+      .update({
+        name: editColumnForm.name.trim(),
+        item_date: editColumnForm.item_date || null,
+        total_amount: col.kind === 'computed' ? Number(editColumnForm.total_amount) || 0 : null,
+      })
+      .eq('id', col.id)
+    if (error) {
+      setError('Ошибка сохранения: ' + error.message)
+      return
+    }
+    setEditingColumnId(null)
+    loadAll()
+  }
+
+  async function deleteColumn(col) {
+    if (!confirm(`Удалить статью «${col.name}»? Значения по игрокам тоже удалятся.`)) return
+    await supabase.from('expense_columns').delete().eq('id', col.id)
+    loadAll()
+  }
+
+  async function toggleParticipant(col, tripPlayerId) {
+    const set = participantsByColumn.get(col.id) || new Set()
+    if (set.has(tripPlayerId)) {
+      await supabase
+        .from('expense_participants')
+        .delete()
+        .eq('column_id', col.id)
+        .eq('trip_player_id', tripPlayerId)
+    } else {
+      await supabase.from('expense_participants').insert({ column_id: col.id, trip_player_id: tripPlayerId })
+    }
+    loadAll()
+  }
+
+  async function selectAllParticipants(col) {
+    const rows = tripPlayers.map((tp) => ({ column_id: col.id, trip_player_id: tp.id }))
+    await supabase.from('expense_participants').delete().eq('column_id', col.id)
+    if (rows.length > 0) await supabase.from('expense_participants').insert(rows)
+    loadAll()
+  }
+
+  async function clearAllParticipants(col) {
+    await supabase.from('expense_participants').delete().eq('column_id', col.id)
+    loadAll()
+  }
+
+  function manualKey(columnId, tripPlayerId) {
+    return `${columnId}:${tripPlayerId}`
+  }
+
+  function getManualDisplayValue(col, tripPlayerId) {
+    const key = manualKey(col.id, tripPlayerId)
+    if (key in manualDraft) return manualDraft[key]
+    const values = valuesByColumn.get(col.id)
+    const v = values ? values.get(tripPlayerId) : 0
+    return v ? String(v) : ''
+  }
+
+  function onManualChange(col, tripPlayerId, text) {
+    setManualDraft((d) => ({ ...d, [manualKey(col.id, tripPlayerId)]: text }))
+  }
+
+  async function commitManualValue(col, tripPlayerId) {
+    const key = manualKey(col.id, tripPlayerId)
+    if (!(key in manualDraft)) return
+    const amount = Number(manualDraft[key]) || 0
+    await supabase
+      .from('expense_values')
+      .upsert({ column_id: col.id, trip_player_id: tripPlayerId, amount }, { onConflict: 'column_id,trip_player_id' })
+    setManualDraft((d) => {
+      const copy = { ...d }
+      delete copy[key]
+      return copy
+    })
+    loadAll()
+  }
+
+  async function fillAllManual(col) {
+    const raw = fillDraft[col.id]
+    const amount = Number(raw) || 0
+    if (tripPlayers.length === 0) return
+    if (!confirm(`Проставить ${amount} ₽ всем ${tripPlayers.length} игрокам в статье «${col.name}»? Текущие значения будут перезаписаны.`)) {
+      return
+    }
+    const rows = tripPlayers.map((tp) => ({ column_id: col.id, trip_player_id: tp.id, amount }))
+    await supabase.from('expense_values').upsert(rows, { onConflict: 'column_id,trip_player_id' })
+    setFillDraft((d) => ({ ...d, [col.id]: '' }))
+    loadAll()
+  }
+
+  // ---------- Игроки поездки ----------
+
+  async function addExistingPlayer(rosterPlayerId) {
+    if (!rosterPlayerId) return
+    setError('')
+    const { error } = await supabase.from('trip_players').insert({
+      trip_id: tripId,
+      player_id: rosterPlayerId,
+      sort_order: tripPlayers.length,
+    })
+    if (error) {
+      setError('Ошибка добавления: ' + error.message)
       return
     }
     loadAll()
   }
 
-  function round2(n) {
-    return Math.round(n * 100) / 100
+  async function addNewPlayer(e) {
+    e.preventDefault()
+    const name = addPlayerName.trim()
+    if (!name) return
+    setError('')
+    const { data: rp, error: rpErr } = await supabase
+      .from('roster_players')
+      .insert({ full_name: name })
+      .select()
+      .single()
+    if (rpErr) {
+      setError('Ошибка добавления игрока в состав: ' + rpErr.message)
+      return
+    }
+    const { error: tpErr } = await supabase.from('trip_players').insert({
+      trip_id: tripId,
+      player_id: rp.id,
+      sort_order: tripPlayers.length,
+    })
+    if (tpErr) {
+      setError('Ошибка добавления в поездку: ' + tpErr.message)
+      return
+    }
+    setAddPlayerName('')
+    loadAll()
+  }
+
+  async function removeFromTrip(tp) {
+    if (!confirm(`Убрать ${tp.full_name} из этой поездки? Все его статьи расходов и платежи по этой поездке удалятся. Из общего состава игрок не пропадёт.`)) return
+    await supabase.from('trip_players').delete().eq('id', tp.id)
+    loadAll()
+  }
+
+  async function saveDates(tp, field, value) {
+    await supabase
+      .from('trip_players')
+      .update({ [field]: value || null })
+      .eq('id', tp.id)
+    loadAll()
+  }
+
+  // ---------- Платежи ----------
+
+  function openPayments(tripPlayerId) {
+    setExpandedPaymentsFor((cur) => (cur === tripPlayerId ? null : tripPlayerId))
+    setNewPaymentForm({ amount: '', paid_at: new Date().toISOString().slice(0, 10), note: '' })
+  }
+
+  async function addPayment(tripPlayerId) {
+    const amount = Number(newPaymentForm.amount) || 0
+    if (!amount) {
+      setError('Укажите сумму платежа')
+      return
+    }
+    setError('')
+    const { error } = await supabase.from('payments').insert({
+      trip_player_id: tripPlayerId,
+      amount,
+      paid_at: newPaymentForm.paid_at || new Date().toISOString().slice(0, 10),
+      note: newPaymentForm.note || null,
+    })
+    if (error) {
+      setError('Ошибка сохранения платежа: ' + error.message)
+      return
+    }
+    setNewPaymentForm({ amount: '', paid_at: new Date().toISOString().slice(0, 10), note: '' })
+    loadAll()
+  }
+
+  async function deletePayment(paymentId) {
+    if (!confirm('Удалить этот платёж?')) return
+    await supabase.from('payments').delete().eq('id', paymentId)
+    loadAll()
+  }
+
+  // ---------- Excel ----------
+
+  function handleExport() {
+    if (!calc) return
+    exportTripToExcel(trip, calc, expenseColumns)
   }
 
   if (loading) return <div className="page">Загрузка...</div>
   if (!trip) return <div className="page">Поездка не найдена.</div>
 
-  const resultsByPlayerId = calc
-    ? Object.fromEntries(calc.players.map((r) => [r.id, r]))
-    : {}
+  const rosterNotInTrip = rosterOptions.filter((rp) => !tripPlayers.some((tp) => tp.player_id === rp.id))
 
   return (
     <div className="page">
@@ -201,17 +418,18 @@ export default function TripDetail() {
 
       <div className="page-header">
         <h1>{trip.name}</h1>
-        <button className="secondary" onClick={startEditTrip}>
-          Изменить параметры поездки
-        </button>
+        <div>
+          <button className="secondary" onClick={startEditTrip}>
+            Изменить параметры поездки
+          </button>
+          <button className="secondary" onClick={handleExport} disabled={!calc}>
+            Выгрузить в Excel
+          </button>
+        </div>
       </div>
       <p className="muted">
-        {trip.start_date} — {trip.end_date} · Тарифы/день: питание {trip.food_rate} ·
-        проживание {trip.stay_rate} · перекус {trip.snack_rate}
-      </p>
-      <p className="muted">
-        Дорога всего: {trip.road_total || 0} ₽ · Расходы на тренера всего:{' '}
-        {trip.coach_costs_total || 0} ₽ · Тренерские услуги всего: {trip.coach_fee_total || 0} ₽
+        {trip.start_date} — {trip.end_date}
+        {trip.notes ? ` · ${trip.notes}` : ''}
       </p>
 
       {editingTrip && (
@@ -230,28 +448,8 @@ export default function TripDetail() {
               <input type="date" value={tripForm.end_date} onChange={(e) => setTripForm({ ...tripForm, end_date: e.target.value })} />
             </label>
             <label>
-              Питание, руб/чел/день
-              <input type="number" value={tripForm.food_rate} onChange={(e) => setTripForm({ ...tripForm, food_rate: e.target.value })} />
-            </label>
-            <label>
-              Проживание, руб/чел/день
-              <input type="number" value={tripForm.stay_rate} onChange={(e) => setTripForm({ ...tripForm, stay_rate: e.target.value })} />
-            </label>
-            <label>
-              Перекус, руб/чел/день
-              <input type="number" value={tripForm.snack_rate} onChange={(e) => setTripForm({ ...tripForm, snack_rate: e.target.value })} />
-            </label>
-            <label>
-              Дорога, всего ₽ (автобус на игры + дорога до города)
-              <input type="number" value={tripForm.road_total} onChange={(e) => setTripForm({ ...tripForm, road_total: e.target.value })} />
-            </label>
-            <label>
-              Расходы на тренера, всего ₽ (питание+проживание+дорога)
-              <input type="number" value={tripForm.coach_costs_total} onChange={(e) => setTripForm({ ...tripForm, coach_costs_total: e.target.value })} />
-            </label>
-            <label>
-              Тренерские услуги, всего ₽
-              <input type="number" value={tripForm.coach_fee_total} onChange={(e) => setTripForm({ ...tripForm, coach_fee_total: e.target.value })} />
+              Заметка
+              <input value={tripForm.notes} onChange={(e) => setTripForm({ ...tripForm, notes: e.target.value })} />
             </label>
           </div>
           <button onClick={saveTrip}>Сохранить</button>
@@ -261,180 +459,362 @@ export default function TripDetail() {
         </div>
       )}
 
+      {error && <p className="error">{error}</p>}
+
+      {/* ---------- Статьи расходов ---------- */}
       <div className="page-header">
-        <h2>Игроки</h2>
+        <h2>Статьи расходов</h2>
         <div>
-          <button className="secondary" onClick={splitRoadEvenly} disabled={players.length === 0}>
-            Разделить дорогу поровну ({trip.road_total || 0} ₽ / {players.length || 0} чел.)
+          <button className="secondary" onClick={() => openNewColumnForm('computed')}>
+            + Расчётная статья
           </button>
-          <button className="secondary" onClick={() => setShowImport((v) => !v)}>
-            {showImport ? 'Отмена импорта' : 'Импорт из Excel/CSV'}
+          <button className="secondary" onClick={() => openNewColumnForm('manual')}>
+            + Произвольная статья
           </button>
         </div>
       </div>
-      {error && <p className="error">{error}</p>}
+
+      {newColumnKind && (
+        <form className="card" onSubmit={submitNewColumn}>
+          <p className="hint">
+            {newColumnKind === 'computed'
+              ? 'Расчётная статья: указываешь общую сумму, а участников отмечаешь галочками прямо в таблице — сумма поделится поровну между ними.'
+              : 'Произвольная статья: значение по каждому игроку вписывается вручную.'}
+          </p>
+          <div className="grid">
+            <label>
+              Название
+              <input value={newColumnForm.name} onChange={(e) => setNewColumnForm({ ...newColumnForm, name: e.target.value })} autoFocus />
+            </label>
+            <label>
+              Дата (необязательно)
+              <input type="date" value={newColumnForm.item_date} onChange={(e) => setNewColumnForm({ ...newColumnForm, item_date: e.target.value })} />
+            </label>
+            {newColumnKind === 'computed' && (
+              <label>
+                Сумма всего, ₽
+                <input type="number" value={newColumnForm.total_amount} onChange={(e) => setNewColumnForm({ ...newColumnForm, total_amount: e.target.value })} />
+              </label>
+            )}
+          </div>
+          <button type="submit">Добавить</button>
+          <button type="button" className="secondary" onClick={() => setNewColumnKind(null)}>
+            Отмена
+          </button>
+        </form>
+      )}
+
+      {expenseColumns.length > 0 && (
+        <table className="players-table">
+          <thead>
+            <tr>
+              <th>Статья</th>
+              <th>Тип</th>
+              <th>Дата</th>
+              <th>Сумма всего</th>
+              <th>Участников</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {expenseColumns.map((col) => {
+              const isEditing = editingColumnId === col.id
+              const count = (participantsByColumn.get(col.id) || new Set()).size
+              if (isEditing) {
+                return (
+                  <tr key={col.id} className="editing-row">
+                    <td>
+                      <input value={editColumnForm.name} onChange={(e) => setEditColumnForm({ ...editColumnForm, name: e.target.value })} />
+                    </td>
+                    <td className="muted">{col.kind === 'computed' ? 'расчётная' : 'произвольная'}</td>
+                    <td>
+                      <input type="date" value={editColumnForm.item_date} onChange={(e) => setEditColumnForm({ ...editColumnForm, item_date: e.target.value })} />
+                    </td>
+                    <td>
+                      {col.kind === 'computed' ? (
+                        <input type="number" value={editColumnForm.total_amount} onChange={(e) => setEditColumnForm({ ...editColumnForm, total_amount: e.target.value })} />
+                      ) : (
+                        <span className="muted">—</span>
+                      )}
+                    </td>
+                    <td className="muted">{col.kind === 'computed' ? `${count} из ${tripPlayers.length}` : '—'}</td>
+                    <td>
+                      <button onClick={() => saveEditColumn(col)}>Сохранить</button>
+                      <button className="secondary" onClick={() => setEditingColumnId(null)}>
+                        Отмена
+                      </button>
+                    </td>
+                  </tr>
+                )
+              }
+              return (
+                <tr key={col.id}>
+                  <td>{col.name}</td>
+                  <td className="muted">{col.kind === 'computed' ? 'расчётная' : 'произвольная'}</td>
+                  <td>{col.item_date || '—'}</td>
+                  <td>{col.kind === 'computed' ? `${col.total_amount ?? 0} ₽` : '—'}</td>
+                  <td>
+                    {col.kind === 'computed' ? (
+                      <>
+                        {count} из {tripPlayers.length}{' '}
+                        <button className="secondary" onClick={() => selectAllParticipants(col)}>
+                          все
+                        </button>
+                        <button className="secondary" onClick={() => clearAllParticipants(col)}>
+                          никто
+                        </button>
+                      </>
+                    ) : (
+                      <span className="muted">
+                        заполнить всем:{' '}
+                        <input
+                          className="note-input"
+                          style={{ width: 90, display: 'inline-block' }}
+                          type="number"
+                          value={fillDraft[col.id] || ''}
+                          onChange={(e) => setFillDraft((d) => ({ ...d, [col.id]: e.target.value }))}
+                        />
+                        <button className="secondary" onClick={() => fillAllManual(col)}>
+                          ОК
+                        </button>
+                      </span>
+                    )}
+                  </td>
+                  <td>
+                    <button className="secondary" onClick={() => startEditColumn(col)}>
+                      Изм.
+                    </button>
+                    <button className="danger" onClick={() => deleteColumn(col)}>
+                      Удалить
+                    </button>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      )}
+
+      {/* ---------- Игроки и расходы ---------- */}
+      <div className="page-header">
+        <h2>Игроки</h2>
+        <button className="secondary" onClick={() => setShowImport((v) => !v)}>
+          {showImport ? 'Отмена импорта' : 'Импорт из Excel/CSV'}
+        </button>
+      </div>
 
       {showImport && (
         <ImportPlayersModal
           tripId={tripId}
-          startOrder={players.length}
+          startOrder={tripPlayers.length}
+          existingPlayerIds={new Set(tripPlayers.map((tp) => tp.player_id))}
           onCancel={() => setShowImport(false)}
-          onDone={() => {
+          onDone={(skipped) => {
             setShowImport(false)
+            if (skipped) setError(`Импорт завершён, ${skipped} чел. пропущено — уже были в этой поездке.`)
             loadAll()
           }}
         />
       )}
 
-      <table className="players-table">
-        <thead>
-          <tr>
-            <th>ФИО</th>
-            <th>Дата рожд.</th>
-            <th>Приезд</th>
-            <th>Отъезд</th>
-            <th>Проезд</th>
-            <th>Питание</th>
-            <th>Проживание</th>
-            <th>Перекус</th>
-            <th>Тренер</th>
-            <th>Тренерские</th>
-            <th>Корректировка</th>
-            <th>ИТОГО</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {players.map((p) => {
-            const r = resultsByPlayerId[p.id]
-            const isEditing = editingPlayerId === p.id
-            if (isEditing) {
-              return (
-                <tr key={p.id} className="editing-row">
-                  <td>
-                    <input value={editPlayerForm.full_name} onChange={(e) => setEditPlayerForm({ ...editPlayerForm, full_name: e.target.value })} />
-                  </td>
-                  <td>
-                    <input type="date" value={editPlayerForm.birth_date} onChange={(e) => setEditPlayerForm({ ...editPlayerForm, birth_date: e.target.value })} />
-                  </td>
-                  <td>
-                    <input type="date" value={editPlayerForm.arrival_date} onChange={(e) => setEditPlayerForm({ ...editPlayerForm, arrival_date: e.target.value })} placeholder={trip.start_date} />
-                  </td>
-                  <td>
-                    <input type="date" value={editPlayerForm.departure_date} onChange={(e) => setEditPlayerForm({ ...editPlayerForm, departure_date: e.target.value })} placeholder={trip.end_date} />
-                  </td>
-                  <td>
-                    <input type="number" value={editPlayerForm.travel_cost} onChange={(e) => setEditPlayerForm({ ...editPlayerForm, travel_cost: e.target.value })} />
-                  </td>
-                  <td colSpan={5} className="muted">пересчитается после сохранения</td>
-                  <td>
-                    <input type="number" value={editPlayerForm.adjustment} onChange={(e) => setEditPlayerForm({ ...editPlayerForm, adjustment: e.target.value })} />
-                    <input
-                      className="note-input"
-                      placeholder="комментарий"
-                      value={editPlayerForm.adjustment_note}
-                      onChange={(e) => setEditPlayerForm({ ...editPlayerForm, adjustment_note: e.target.value })}
-                    />
-                  </td>
-                  <td></td>
-                  <td>
-                    <button onClick={() => saveEditPlayer(p.id)}>Сохранить</button>
-                    <button className="secondary" onClick={() => setEditingPlayerId(null)}>
-                      Отмена
-                    </button>
-                  </td>
-                </tr>
-              )
-            }
-            return (
-              <tr key={p.id}>
-                <td>{p.full_name}</td>
-                <td>{p.birth_date || '—'}</td>
-                <td>{p.arrival_date || '—'}</td>
-                <td>{p.departure_date || '—'}</td>
-                <td>{r?.travel ?? 0}</td>
-                <td>{r?.food ?? 0}</td>
-                <td>{r?.stay ?? 0}</td>
-                <td>{r?.snack ?? 0}</td>
-                <td>{r?.coachCosts ?? 0}</td>
-                <td>{r?.coachFee ?? 0}</td>
-                <td title={p.adjustment_note || ''}>{r?.adjustment ?? 0}</td>
-                <td className="total-cell">{r?.total ?? 0}</td>
-                <td>
-                  <button className="secondary" onClick={() => startEditPlayer(p)}>
-                    Изм.
-                  </button>
-                  <button className="danger" onClick={() => handleDeletePlayer(p.id)}>
-                    Удалить
-                  </button>
-                </td>
+      {expenseColumns.length === 0 ? (
+        <p className="hint">Сначала добавь хотя бы одну статью расходов выше — тогда появится таблица по игрокам.</p>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table className="players-table">
+            <thead>
+              <tr>
+                <th>ФИО</th>
+                <th>Приезд</th>
+                <th>Отъезд</th>
+                {expenseColumns.map((col) => (
+                  <th key={col.id} title={col.kind === 'computed' ? 'клик по ячейке — включить/выключить игрока в статью' : 'вписывается вручную'}>
+                    {col.name}
+                  </th>
+                ))}
+                <th>Итого</th>
+                <th>Оплачено</th>
+                <th>Долг</th>
+                <th>Переплата</th>
+                <th></th>
               </tr>
-            )
-          })}
-          {calc && (
-            <tr className="summary-row">
-              <td colSpan={4}>ИТОГО по поездке</td>
-              <td>{calc.summary.travel}</td>
-              <td>{calc.summary.food}</td>
-              <td>{calc.summary.stay}</td>
-              <td>{calc.summary.snack}</td>
-              <td>{calc.summary.coachCosts}</td>
-              <td>{calc.summary.coachFee}</td>
-              <td>{calc.summary.adjustment}</td>
-              <td className="total-cell">{calc.summary.total}</td>
-              <td></td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+            </thead>
+            <tbody>
+              {tripPlayers.map((tp) => {
+                const r = resultsByTripPlayerId[tp.id]
+                const isPaymentsOpen = expandedPaymentsFor === tp.id
+                return (
+                  <Fragment key={tp.id}>
+                    <tr>
+                      <td>
+                        <Link to={`/players/${tp.player_id}`}>{tp.full_name}</Link>
+                      </td>
+                      <td>
+                        <input
+                          type="date"
+                          className="note-input"
+                          value={tp.arrival_date || ''}
+                          onChange={(e) => saveDates(tp, 'arrival_date', e.target.value)}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="date"
+                          className="note-input"
+                          value={tp.departure_date || ''}
+                          onChange={(e) => saveDates(tp, 'departure_date', e.target.value)}
+                        />
+                      </td>
+                      {expenseColumns.map((col) => {
+                        if (col.kind === 'computed') {
+                          const included = (participantsByColumn.get(col.id) || new Set()).has(tp.id)
+                          return (
+                            <td
+                              key={col.id}
+                              className={included ? 'checkbox-cell included' : 'checkbox-cell excluded'}
+                              onClick={() => toggleParticipant(col, tp.id)}
+                              title={included ? 'включён — клик, чтобы убрать' : 'не включён — клик, чтобы добавить'}
+                            >
+                              {included ? r?.byColumn[col.id] ?? 0 : '—'}
+                            </td>
+                          )
+                        }
+                        return (
+                          <td key={col.id}>
+                            <input
+                              type="number"
+                              className="note-input"
+                              value={getManualDisplayValue(col, tp.id)}
+                              onChange={(e) => onManualChange(col, tp.id, e.target.value)}
+                              onBlur={() => commitManualValue(col, tp.id)}
+                            />
+                          </td>
+                        )
+                      })}
+                      <td className="total-cell">{r?.total ?? 0}</td>
+                      <td>
+                        <button className="secondary" onClick={() => openPayments(tp.id)}>
+                          {r?.paid ?? 0} ₽
+                        </button>
+                      </td>
+                      <td>{r?.debt ?? 0}</td>
+                      <td>{r?.overpaid ?? 0}</td>
+                      <td>
+                        <button className="danger" onClick={() => removeFromTrip(tp)}>
+                          Убрать
+                        </button>
+                      </td>
+                    </tr>
+                    {isPaymentsOpen && (
+                      <tr className="editing-row">
+                        <td colSpan={7 + expenseColumns.length}>
+                          <b>Платежи — {tp.full_name}</b>
+                          <table className="players-table" style={{ marginTop: 8 }}>
+                            <thead>
+                              <tr>
+                                <th>Дата</th>
+                                <th>Сумма</th>
+                                <th>Комментарий</th>
+                                <th></th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(r?.payments || []).map((p) => (
+                                <tr key={p.id}>
+                                  <td>{p.paid_at}</td>
+                                  <td>{p.amount} ₽</td>
+                                  <td>{p.note || '—'}</td>
+                                  <td>
+                                    <button className="danger" onClick={() => deletePayment(p.id)}>
+                                      Удалить
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))}
+                              <tr>
+                                <td>
+                                  <input
+                                    type="date"
+                                    value={newPaymentForm.paid_at}
+                                    onChange={(e) => setNewPaymentForm({ ...newPaymentForm, paid_at: e.target.value })}
+                                  />
+                                </td>
+                                <td>
+                                  <input
+                                    type="number"
+                                    placeholder="сумма"
+                                    value={newPaymentForm.amount}
+                                    onChange={(e) => setNewPaymentForm({ ...newPaymentForm, amount: e.target.value })}
+                                  />
+                                </td>
+                                <td>
+                                  <input
+                                    placeholder="комментарий"
+                                    value={newPaymentForm.note}
+                                    onChange={(e) => setNewPaymentForm({ ...newPaymentForm, note: e.target.value })}
+                                  />
+                                </td>
+                                <td>
+                                  <button onClick={() => addPayment(tp.id)}>Добавить</button>
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                )
+              })}
+              {calc && (
+                <tr className="summary-row">
+                  <td colSpan={3}>ИТОГО по поездке</td>
+                  {expenseColumns.map((col) => (
+                    <td key={col.id}>{calc.summary.byColumn[col.id] ?? 0}</td>
+                  ))}
+                  <td className="total-cell">{calc.summary.total}</td>
+                  <td>{calc.summary.paid}</td>
+                  <td>{calc.summary.debt}</td>
+                  <td>{calc.summary.overpaid}</td>
+                  <td></td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
 
-      <h3>Добавить игрока</h3>
-      <form className="card" onSubmit={handleAddPlayer}>
+      <h3>Добавить игрока в поездку</h3>
+      <div className="card">
         <div className="grid">
           <label>
-            ФИО
-            <input value={newPlayer.full_name} onChange={(e) => setNewPlayer({ ...newPlayer, full_name: e.target.value })} />
-          </label>
-          <label>
-            Дата рождения
-            <input type="date" value={newPlayer.birth_date} onChange={(e) => setNewPlayer({ ...newPlayer, birth_date: e.target.value })} />
-          </label>
-          <label>
-            Приезд (если позже начала поездки)
-            <input type="date" value={newPlayer.arrival_date} onChange={(e) => setNewPlayer({ ...newPlayer, arrival_date: e.target.value })} />
-          </label>
-          <label>
-            Отъезд (если раньше окончания)
-            <input type="date" value={newPlayer.departure_date} onChange={(e) => setNewPlayer({ ...newPlayer, departure_date: e.target.value })} />
-          </label>
-          <label>
-            Проезд, руб
-            <input type="number" value={newPlayer.travel_cost} onChange={(e) => setNewPlayer({ ...newPlayer, travel_cost: e.target.value })} />
-          </label>
-          <label>
-            Корректировка, руб (можно отрицательную)
-            <input type="number" value={newPlayer.adjustment} onChange={(e) => setNewPlayer({ ...newPlayer, adjustment: e.target.value })} />
-          </label>
-          <label>
-            Комментарий к корректировке
-            <input value={newPlayer.adjustment_note} onChange={(e) => setNewPlayer({ ...newPlayer, adjustment_note: e.target.value })} />
+            Из состава
+            <select onChange={(e) => addExistingPlayer(e.target.value)} value="">
+              <option value="">— выбрать —</option>
+              {rosterNotInTrip.map((rp) => (
+                <option key={rp.id} value={rp.id}>
+                  {rp.full_name}
+                </option>
+              ))}
+            </select>
           </label>
         </div>
-        <button type="submit">Добавить игрока</button>
-      </form>
+        <form onSubmit={addNewPlayer} style={{ marginTop: 8 }}>
+          <label>
+            Новый игрок (ФИО) — добавится и в общий состав
+            <input value={addPlayerName} onChange={(e) => setAddPlayerName(e.target.value)} />
+          </label>
+          <button type="submit" style={{ marginTop: 8 }}>
+            Добавить нового
+          </button>
+        </form>
+      </div>
 
       <p className="hint">
-        Пустые даты приезда/отъезда означают, что игрок едет с начала и до конца
-        поездки. Питание/проживание/перекус пересчитываются автоматически для
-        всех игроков при любом изменении дат — доля выбывших/недоприехавших
-        игроков раскидывается на тех, кто присутствует в эти дни. Столбцы
-        «Тренер» и «Тренерские» — это общие суммы поездки («Расходы на
-        тренера» и «Тренерские услуги» в параметрах поездки), поделённые
-        поровну на всех игроков в списке; от дат приезда/отъезда они не
-        зависят. «Дорога» задаётся одной суммой на группу в параметрах
-        поездки, а кнопка «Разделить дорогу поровну» раскидывает её по всем
-        игрокам в поле «Проезд» — после этого его можно поправить вручную
-        отдельным игрокам (например, льготный билет).
+        Клик по ячейке расчётной статьи включает/выключает игрока в ней — сумма делится поровну между
+        включёнными и округляется вверх до целого рубля. Произвольные статьи — просто впиши число, оно
+        сохранится, когда уберёшь курсор из поля. «Оплачено» — кнопка со списком платежей по датам, клик
+        открывает/закрывает список под строкой.
       </p>
     </div>
   )
