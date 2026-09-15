@@ -7,6 +7,28 @@ body {
   font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif;
   background: #f4f5f7;
   color: #1a1a1a;
+  position: relative;
+}
+
+/* Едва заметный логотип клуба по центру фона всего приложения — закреплён
+   (не уезжает при прокрутке), очень бледный и с плавно растворяющимися
+   краями (через mask-image), чтобы не было видно прямоугольную рамку
+   картинки и не мешал тексту. Стоит позади всего контента (z-index: -1),
+   белые карточки/таблицы поверх него как были непрозрачными, так и
+   остаются — логотип едва проступает только в пустых местах фона. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url('/logo-watermark.jpg');
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: min(48vw, 620px) auto;
+  opacity: 0.05;
+  -webkit-mask-image: radial-gradient(circle, #000 35%, transparent 70%);
+  mask-image: radial-gradient(circle, #000 35%, transparent 70%);
+  pointer-events: none;
+  z-index: -1;
 }
 
 .page {
