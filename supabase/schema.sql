@@ -25,6 +25,8 @@ create table if not exists roster_players (
   id uuid primary key default gen_random_uuid(),
   full_name text not null,
   notes text,
+  default_squad text,    -- "состав по умолчанию", подставляется при добавлении
+                          -- игрока в НОВУЮ поездку; на уже созданные не влияет
   created_at timestamptz not null default now()
 );
 

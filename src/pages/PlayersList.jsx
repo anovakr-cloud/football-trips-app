@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
+import { SQUADS } from '../squads'
 
 export default function PlayersList() {
   const [players, setPlayers] = useState([])
   const [loading, setLoading] = useState(true)
   const [newName, setNewName] = useState('')
+  const [newDefaultSquad, setNewDefaultSquad] = useState('')
   const [error, setError] = useState('')
 
   async function loadPlayers() {
@@ -34,18 +36,24 @@ export default function PlayersList() {
       }
     }
     setError('')
-    const { error } = await supabase.from('roster_players').insert({ full_name: name })
+    const { error } = await supabase.from('roster_players').insert({ full_name: name, default_squad: newDefaultSquad || null })
     if (error) {
       setError('Ошибка добавления: ' + error.message)
       return
     }
     setNewName('')
+    setNewDefaultSquad('')
     loadPlayers()
   }
 
   async function deletePlayer(p) {
     if (!confirm(`Удалить ${p.full_name} из состава совсем? Он пропадёт из всех поездок, где участвовал, вместе со своими расходами и платежами.`)) return
     await supabase.from('roster_players').delete().eq('id', p.id)
+    loadPlayers()
+  }
+
+  async function saveDefaultSquad(p, value) {
+    await supabase.from('roster_players').update({ default_squad: value || null }).eq('id', p.id)
     loadPlayers()
   }
 
@@ -57,15 +65,32 @@ export default function PlayersList() {
       <div className="page-header">
         <h1>Состав</h1>
       </div>
-      <p className="hint">Общий список игроков команды — на каждого ведётся сквозной учёт по всем поездкам.</p>
+      <p className="hint">
+        Общий список игроков команды — на каждого ведётся сквозной учёт по всем поездкам. «Состав по
+        умолчанию» — просто удобство: он сам подставится, когда добавляешь игрока в новую поездку, но
+        внутри самой поездки его всегда можно поменять отдельно, не трогая эту настройку.
+      </p>
 
       {error && <p className="error">{error}</p>}
 
       <form className="card" onSubmit={addPlayer}>
-        <label>
-          Добавить игрока в состав (ФИО)
-          <input value={newName} onChange={(e) => setNewName(e.target.value)} />
-        </label>
+        <div className="grid">
+          <label>
+            Добавить игрока в состав (ФИО)
+            <input value={newName} onChange={(e) => setNewName(e.target.value)} />
+          </label>
+          <label>
+            Состав по умолчанию (необязательно)
+            <select value={newDefaultSquad} onChange={(e) => setNewDefaultSquad(e.target.value)}>
+              <option value="">— не указан —</option>
+              {SQUADS.map((sq) => (
+                <option key={sq} value={sq}>
+                  {sq}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
         <button type="submit" style={{ marginTop: 8 }}>
           Добавить
         </button>
@@ -80,6 +105,7 @@ export default function PlayersList() {
           <thead>
             <tr>
               <th>ФИО</th>
+              <th>Состав по умолчанию</th>
               <th></th>
             </tr>
           </thead>
@@ -88,6 +114,16 @@ export default function PlayersList() {
               <tr key={p.id}>
                 <td>
                   <Link to={`/players/${p.id}`}>{p.full_name}</Link>
+                </td>
+                <td>
+                  <select value={p.default_squad || ''} onChange={(e) => saveDefaultSquad(p, e.target.value)}>
+                    <option value="">— не указан —</option>
+                    {SQUADS.map((sq) => (
+                      <option key={sq} value={sq}>
+                        {sq}
+                      </option>
+                    ))}
+                  </select>
                 </td>
                 <td>
                   <button className="danger" onClick={() => deletePlayer(p)}>

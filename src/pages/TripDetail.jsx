@@ -4,8 +4,7 @@ import { supabase } from '../supabaseClient'
 import { calculateTrip, roundUp } from '../calc'
 import { exportTripToExcel } from '../exportExcel'
 import ImportPlayersModal from '../components/ImportPlayersModal'
-
-const SQUADS = ['Состав 1', 'Состав 2']
+import { SQUADS } from '../squads'
 
 export default function TripDetail() {
   const { tripId } = useParams()
@@ -138,7 +137,7 @@ export default function TripDetail() {
 
     const { data: rosterData } = await supabase
       .from('roster_players')
-      .select('id, full_name')
+      .select('id, full_name, default_squad')
       .order('full_name', { ascending: true })
     setRosterOptions(rosterData || [])
 
@@ -324,10 +323,11 @@ export default function TripDetail() {
   async function addExistingPlayer(rosterPlayerId) {
     if (!rosterPlayerId) return
     setError('')
+    const rp = rosterOptions.find((r) => r.id === rosterPlayerId)
     const { error } = await supabase.from('trip_players').insert({
       trip_id: tripId,
       player_id: rosterPlayerId,
-      squad: addSquad || null,
+      squad: rp?.default_squad || null,
       sort_order: tripPlayers.length,
     })
     if (error) {
@@ -354,7 +354,7 @@ export default function TripDetail() {
     setError('')
     const { data: rp, error: rpErr } = await supabase
       .from('roster_players')
-      .insert({ full_name: name })
+      .insert({ full_name: name, default_squad: addSquad || null })
       .select()
       .single()
     if (rpErr) {
@@ -780,7 +780,67 @@ export default function TripDetail() {
       )}
 
       {expenseColumns.length === 0 ? (
-        <p className="hint">Сначала добавь хотя бы одну статью расходов выше — тогда появится таблица по игрокам.</p>
+        tripPlayers.length === 0 ? (
+          <p className="hint">Сначала добавь хотя бы одну статью расходов выше — тогда появится таблица по игрокам.</p>
+        ) : (
+          <>
+            <p className="hint">
+              Статей расходов ещё нет — пока просто список игроков поездки. Таблица с расходами появится,
+              как только добавишь хотя бы одну статью выше.
+            </p>
+            <table className="players-table">
+              <thead>
+                <tr>
+                  <th>ФИО</th>
+                  <th>Состав</th>
+                  <th>Приезд</th>
+                  <th>Отъезд</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {visiblePlayers.map((tp) => (
+                  <tr key={tp.id}>
+                    <td>
+                      <Link to={`/players/${tp.player_id}`}>{tp.full_name}</Link>
+                    </td>
+                    <td>
+                      <select value={tp.squad || ''} onChange={(e) => saveSquad(tp, e.target.value)}>
+                        <option value="">—</option>
+                        {SQUADS.map((sq) => (
+                          <option key={sq} value={sq}>
+                            {sq}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td>
+                      <input
+                        type="date"
+                        className="note-input"
+                        value={tp.arrival_date || ''}
+                        onChange={(e) => saveDates(tp, 'arrival_date', e.target.value)}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="date"
+                        className="note-input"
+                        value={tp.departure_date || ''}
+                        onChange={(e) => saveDates(tp, 'departure_date', e.target.value)}
+                      />
+                    </td>
+                    <td>
+                      <button className="danger" onClick={() => removeFromTrip(tp)}>
+                        Убрать
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )
       ) : (
         <div className="table-scroll">
           <table className="players-table">
@@ -966,35 +1026,41 @@ export default function TripDetail() {
 
       <h3>Добавить игрока в поездку</h3>
       <div className="card">
-        <div className="grid">
-          <label>
-            В какой состав (необязательно)
-            <select value={addSquad} onChange={(e) => setAddSquad(e.target.value)}>
-              <option value="">— не указан —</option>
-              {SQUADS.map((sq) => (
-                <option key={sq} value={sq}>
-                  {sq}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Из общего состава
-            <select onChange={(e) => addExistingPlayer(e.target.value)} value="">
-              <option value="">— выбрать —</option>
-              {rosterNotInTrip.map((rp) => (
-                <option key={rp.id} value={rp.id}>
-                  {rp.full_name}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-        <form onSubmit={addNewPlayer} style={{ marginTop: 8 }}>
-          <label>
-            Новый игрок (ФИО) — добавится и в общий состав
-            <input value={addPlayerName} onChange={(e) => setAddPlayerName(e.target.value)} />
-          </label>
+        <label>
+          Из общего состава
+          <select onChange={(e) => addExistingPlayer(e.target.value)} value="">
+            <option value="">— выбрать —</option>
+            {rosterNotInTrip.map((rp) => (
+              <option key={rp.id} value={rp.id}>
+                {rp.full_name}
+                {rp.default_squad ? ` (${rp.default_squad})` : ''}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="hint" style={{ marginTop: 4 }}>
+          Состав подставится сам, если у игрока задан состав по умолчанию (страница «Состав») — дальше
+          его можно поменять прямо в таблице этой поездки, на сам «умолчательный» состав это не повлияет.
+        </p>
+
+        <form onSubmit={addNewPlayer} style={{ marginTop: 16 }}>
+          <div className="grid">
+            <label>
+              Новый игрок (ФИО) — добавится и в общий состав
+              <input value={addPlayerName} onChange={(e) => setAddPlayerName(e.target.value)} />
+            </label>
+            <label>
+              В какой состав (необязательно)
+              <select value={addSquad} onChange={(e) => setAddSquad(e.target.value)}>
+                <option value="">— не указан —</option>
+                {SQUADS.map((sq) => (
+                  <option key={sq} value={sq}>
+                    {sq}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
           <button type="submit" style={{ marginTop: 8 }}>
             Добавить нового
           </button>
