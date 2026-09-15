@@ -24,6 +24,11 @@ export default function TripDetail() {
   const [newColumnKind, setNewColumnKind] = useState(null) // 'computed' | 'manual' | null
   const [newColumnForm, setNewColumnForm] = useState({ name: '', item_date: '', total_amount: '' })
 
+  const [templates, setTemplates] = useState([])
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false)
+  const [selectedTemplateIds, setSelectedTemplateIds] = useState(new Set())
+  const [addingTemplates, setAddingTemplates] = useState(false)
+
   const [editingColumnId, setEditingColumnId] = useState(null)
   const [editColumnForm, setEditColumnForm] = useState(null)
 
@@ -144,8 +149,17 @@ export default function TripDetail() {
     setLoading(false)
   }
 
+  async function loadTemplates() {
+    const { data } = await supabase
+      .from('expense_column_templates')
+      .select('*')
+      .order('sort_order', { ascending: true })
+    setTemplates(data || [])
+  }
+
   useEffect(() => {
     loadAll()
+    loadTemplates()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tripId])
 
@@ -191,6 +205,37 @@ export default function TripDetail() {
   function openNewColumnForm(kind) {
     setNewColumnKind(kind)
     setNewColumnForm({ name: '', item_date: '', total_amount: '' })
+  }
+
+  function toggleTemplateSelection(id) {
+    setSelectedTemplateIds((s) => {
+      const next = new Set(s)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  async function addSelectedTemplates() {
+    const chosen = availableTemplates.filter((t) => selectedTemplateIds.has(t.id))
+    if (chosen.length === 0) return
+    setAddingTemplates(true)
+    const rows = chosen.map((t, i) => ({
+      trip_id: tripId,
+      name: t.name,
+      kind: t.kind,
+      total_amount: t.kind === 'computed' ? 0 : null,
+      sort_order: expenseColumns.length + i,
+    }))
+    const { error } = await supabase.from('expense_columns').insert(rows)
+    setAddingTemplates(false)
+    if (error) {
+      setError('Ошибка добавления статей: ' + error.message)
+      return
+    }
+    setSelectedTemplateIds(new Set())
+    setShowTemplatePicker(false)
+    loadAll()
   }
 
   async function submitNewColumn(e) {
@@ -501,6 +546,9 @@ export default function TripDetail() {
 
   const rosterNotInTrip = rosterOptions.filter((rp) => !tripPlayers.some((tp) => tp.player_id === rp.id))
 
+  const existingColumnNames = new Set(expenseColumns.map((c) => c.name.trim().toLowerCase()))
+  const availableTemplates = templates.filter((t) => !existingColumnNames.has(t.name.trim().toLowerCase()))
+
   const visiblePlayers = squadFilter === 'all' ? tripPlayers : tripPlayers.filter((tp) => tp.squad === squadFilter)
 
   function summarizePlayers(players) {
@@ -585,6 +633,11 @@ export default function TripDetail() {
       <div className="page-header">
         <h2>Статьи расходов</h2>
         <div>
+          {templates.length > 0 && (
+            <button className="secondary" onClick={() => setShowTemplatePicker((v) => !v)}>
+              {showTemplatePicker ? 'Отмена' : '+ Из стандартного набора'}
+            </button>
+          )}
           <button className="secondary" onClick={() => openNewColumnForm('computed')}>
             + Расчётная статья
           </button>
@@ -593,6 +646,42 @@ export default function TripDetail() {
           </button>
         </div>
       </div>
+
+      {showTemplatePicker && (
+        <div className="card">
+          {availableTemplates.length === 0 ? (
+            <p className="hint" style={{ marginTop: 0 }}>
+              Все статьи из стандартного набора уже добавлены в эту поездку.
+            </p>
+          ) : (
+            <>
+              <p className="hint" style={{ marginTop: 0 }}>
+                Отметь, что нужно добавить — появится пустым, суммы и участников впишешь как обычно. Уже
+                добавленные в эту поездку статьи в списке не показаны.
+              </p>
+              <div className="template-checkbox-row">
+                {availableTemplates.map((t) => (
+                  <label key={t.id} className="template-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={selectedTemplateIds.has(t.id)}
+                      onChange={() => toggleTemplateSelection(t.id)}
+                    />
+                    {t.name}
+                  </label>
+                ))}
+              </div>
+              <button
+                style={{ marginTop: 12 }}
+                onClick={addSelectedTemplates}
+                disabled={addingTemplates || selectedTemplateIds.size === 0}
+              >
+                {addingTemplates ? 'Добавляем...' : 'Добавить отмеченные'}
+              </button>
+            </>
+          )}
+        </div>
+      )}
 
       {newColumnKind && (
         <form className="card" onSubmit={submitNewColumn}>
