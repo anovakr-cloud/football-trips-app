@@ -708,7 +708,12 @@ export default function TripDetail() {
                     {isPaymentsOpen && (
                       <tr className="editing-row">
                         <td colSpan={7 + expenseColumns.length}>
-                          <b>Платежи — {tp.full_name}</b>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <b>Платежи — {tp.full_name}</b>
+                            <button className="secondary" onClick={() => setExpandedPaymentsFor(null)}>
+                              ✕ Закрыть
+                            </button>
+                          </div>
                           <table className="players-table" style={{ marginTop: 8 }}>
                             <thead>
                               <tr>
