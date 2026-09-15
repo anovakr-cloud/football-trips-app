@@ -23,6 +23,16 @@ export default function PlayersList() {
     e.preventDefault()
     const name = newName.trim()
     if (!name) return
+    const dup = players.find((p) => p.full_name.trim().toLowerCase() === name.toLowerCase())
+    if (dup) {
+      if (
+        !confirm(
+          `Игрок с именем «${dup.full_name}» уже есть в составе. Добавить ещё одного с таким же именем (это будет отдельный, самостоятельный игрок)?`
+        )
+      ) {
+        return
+      }
+    }
     setError('')
     const { error } = await supabase.from('roster_players').insert({ full_name: name })
     if (error) {

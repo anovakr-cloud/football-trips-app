@@ -341,6 +341,16 @@ export default function TripDetail() {
     e.preventDefault()
     const name = addPlayerName.trim()
     if (!name) return
+    const dup = rosterOptions.find((rp) => rp.full_name.trim().toLowerCase() === name.toLowerCase())
+    if (dup) {
+      if (
+        !confirm(
+          `Игрок с именем «${dup.full_name}» уже есть в общем составе. Добавить ещё одного с таким же именем (это будет отдельный, самостоятельный игрок с чистой историей)? Если это тот же ребёнок — отмените и выберите его из списка «Из общего состава» ниже.`
+        )
+      ) {
+        return
+      }
+    }
     setError('')
     const { data: rp, error: rpErr } = await supabase
       .from('roster_players')
