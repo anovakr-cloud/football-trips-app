@@ -6,6 +6,7 @@ import TripsList from './pages/TripsList'
 import TripDetail from './pages/TripDetail'
 import PlayersList from './pages/PlayersList'
 import PlayerCard from './pages/PlayerCard'
+import ExpenseTemplates from './pages/ExpenseTemplates'
 import CashWidget from './components/CashWidget'
 
 export default function App() {
@@ -34,6 +35,7 @@ export default function App() {
         <Route path="/trips/:tripId" element={<TripDetail />} />
         <Route path="/players" element={<PlayersList />} />
         <Route path="/players/:playerId" element={<PlayerCard />} />
+        <Route path="/expense-templates" element={<ExpenseTemplates />} />
       </Routes>
       <CashWidget />
     </BrowserRouter>

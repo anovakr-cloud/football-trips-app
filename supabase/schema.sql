@@ -108,6 +108,17 @@ create table if not exists cash_ledger (
   created_at timestamptz not null default now()
 );
 
+-- Стандартный набор статей расходов — редактируемый список, из которого
+-- можно отметить нужные галочками при создании новой поездки (страница
+-- «Стандартные статьи»). На уже существующие поездки не влияет.
+create table if not exists expense_column_templates (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  kind text not null default 'manual' check (kind in ('computed', 'manual')),
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now()
+);
+
 -- Включаем Row Level Security и разрешаем доступ только авторизованным
 -- пользователям Supabase Auth (см. README — как создать свой логин/пароль).
 -- Это настоящая защита на уровне базы, а не просто экран с паролем во фронтенде:
@@ -120,6 +131,7 @@ alter table expense_participants enable row level security;
 alter table expense_values enable row level security;
 alter table payments enable row level security;
 alter table cash_ledger enable row level security;
+alter table expense_column_templates enable row level security;
 
 create policy "authenticated only - roster_players" on roster_players
   for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
@@ -137,6 +149,8 @@ create policy "authenticated only - payments" on payments
   for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
 create policy "authenticated only - cash_ledger" on cash_ledger
   for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
+create policy "authenticated only - expense_column_templates" on expense_column_templates
+  for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
 
 -- Права на таблицы для роли authenticated — выдаём явно (RLS-политика выше
 -- разрешает доступ, но без этих прав Supabase иногда всё равно отвечает
@@ -150,5 +164,18 @@ grant select, insert, update, delete on
   expense_participants,
   expense_values,
   payments,
-  cash_ledger
+  cash_ledger,
+  expense_column_templates
 to authenticated;
+
+-- Стандартный набор статей расходов на новую базу — те же 8, что и в
+-- готовой миграции для уже существующих баз (см. README).
+insert into expense_column_templates (name, kind, sort_order) values
+  ('Питание', 'manual', 0),
+  ('Проживание', 'manual', 1),
+  ('Дорога туда', 'manual', 2),
+  ('Дорога обратно', 'manual', 3),
+  ('Тренер проживание/питание', 'computed', 4),
+  ('Трансфер туда', 'manual', 5),
+  ('Трансфер обратно', 'manual', 6),
+  ('Тренерские', 'manual', 7);
