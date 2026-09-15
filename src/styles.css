@@ -164,6 +164,14 @@ thead .sticky-col {
   color: white;
 }
 
+.bulk-add-squad-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
 .bulk-payment-row {
   display: flex;
   gap: 8px;

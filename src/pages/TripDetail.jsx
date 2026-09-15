@@ -375,6 +375,29 @@ export default function TripDetail() {
     loadAll()
   }
 
+  async function bulkAddFromSquad(squadName) {
+    const inTripIds = new Set(tripPlayers.map((tp) => tp.player_id))
+    const candidates = rosterOptions.filter((rp) => rp.default_squad === squadName && !inTripIds.has(rp.id))
+    if (candidates.length === 0) {
+      setError(`В общем составе нет игроков с составом по умолчанию «${squadName}», которых ещё нет в этой поездке.`)
+      return
+    }
+    if (!confirm(`Добавить в поездку сразу ${candidates.length} чел. (состав «${squadName}»)?`)) return
+    setError('')
+    const rows = candidates.map((rp, i) => ({
+      trip_id: tripId,
+      player_id: rp.id,
+      squad: squadName,
+      sort_order: tripPlayers.length + i,
+    }))
+    const { error } = await supabase.from('trip_players').insert(rows)
+    if (error) {
+      setError('Ошибка массового добавления: ' + error.message)
+      return
+    }
+    loadAll()
+  }
+
   async function removeFromTrip(tp) {
     if (!confirm(`Убрать ${tp.full_name} из этой поездки? Все его статьи расходов и платежи по этой поездке удалятся. Из общего состава игрок не пропадёт.`)) return
     await supabase.from('trip_players').delete().eq('id', tp.id)
@@ -1026,6 +1049,19 @@ export default function TripDetail() {
 
       <h3>Добавить игрока в поездку</h3>
       <div className="card">
+        <div className="bulk-add-squad-row">
+          <span className="muted">Добавить сразу весь состав:</span>
+          {SQUADS.map((sq) => (
+            <button key={sq} type="button" className="secondary" onClick={() => bulkAddFromSquad(sq)}>
+              + {sq}
+            </button>
+          ))}
+        </div>
+        <p className="hint" style={{ marginTop: 0 }}>
+          Добавятся все, у кого этот состав указан «по умолчанию» на странице «Состав» и кого ещё нет в
+          этой поездке — уточнить каждому отдельно можно потом прямо в таблице.
+        </p>
+
         <label>
           Из общего состава
           <select onChange={(e) => addExistingPlayer(e.target.value)} value="">
