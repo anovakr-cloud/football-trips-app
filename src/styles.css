@@ -115,6 +115,14 @@ th {
   border-radius: 0;
 }
 
+/* Синяя строка заголовка (№, ФИО, Состав, статьи расходов, Итого...) остаётся
+   видна при прокрутке страницы вниз. */
+.table-scroll thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
 .sticky-col {
   position: sticky;
   left: 0;
@@ -125,6 +133,12 @@ th {
 thead .sticky-col {
   background: #305496;
   z-index: 3;
+}
+/* Левая верхняя ячейка (ФИО) зафиксирована и сверху, и слева одновременно —
+   должна быть выше и обычных «плавающих» заголовков, и обычного «плавающего»
+   столбца ФИО в теле таблицы. */
+.table-scroll thead .sticky-col {
+  z-index: 4;
 }
 .summary-row .sticky-col {
   background: #eef1f8;
