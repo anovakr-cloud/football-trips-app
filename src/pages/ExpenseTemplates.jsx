@@ -75,15 +75,21 @@ export default function ExpenseTemplates() {
   async function moveTemplate(index, direction) {
     const targetIndex = index + direction
     if (targetIndex < 0 || targetIndex >= templates.length) return
-    const a = templates[index]
-    const b = templates[targetIndex]
+    // Перенумеровываем sort_order у ВСЕХ статей подряд (0..N-1), а не просто
+    // меняем местами два старых значения — после удалений/добавлений статьи
+    // могли задвоиться по sort_order, и точечный обмен тогда визуально ничего
+    // не менял. Перенумерация чинит порядок навсегда, даже если он уже был
+    // "сбит" раньше.
+    const reordered = [...templates]
+    const [moved] = reordered.splice(index, 1)
+    reordered.splice(targetIndex, 0, moved)
     setError('')
-    const [{ error: err1 }, { error: err2 }] = await Promise.all([
-      supabase.from('expense_column_templates').update({ sort_order: b.sort_order }).eq('id', a.id),
-      supabase.from('expense_column_templates').update({ sort_order: a.sort_order }).eq('id', b.id),
-    ])
-    if (err1 || err2) {
-      setError('Ошибка изменения порядка: ' + (err1?.message || err2?.message))
+    const results = await Promise.all(
+      reordered.map((t, i) => supabase.from('expense_column_templates').update({ sort_order: i }).eq('id', t.id))
+    )
+    const failed = results.find((r) => r.error)
+    if (failed) {
+      setError('Ошибка изменения порядка: ' + failed.error.message)
       return
     }
     loadTemplates()

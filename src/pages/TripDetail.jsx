@@ -297,15 +297,22 @@ export default function TripDetail() {
   async function moveColumn(index, direction) {
     const targetIndex = index + direction
     if (targetIndex < 0 || targetIndex >= expenseColumns.length) return
-    const a = expenseColumns[index]
-    const b = expenseColumns[targetIndex]
+    // Переставляем элемент в массиве и перенумеровываем sort_order у ВСЕХ
+    // статей подряд (0..N-1), а не просто меняем местами два старых значения:
+    // после удалений/добавлений статьи могли задвоиться по sort_order
+    // (например, обе стать с одинаковым значением), и точечный обмен в таком
+    // случае визуально ничего не менял. Перенумерация сразу чинит порядок
+    // навсегда, даже если он уже был "сбит" раньше.
+    const reordered = [...expenseColumns]
+    const [moved] = reordered.splice(index, 1)
+    reordered.splice(targetIndex, 0, moved)
     setError('')
-    const [{ error: err1 }, { error: err2 }] = await Promise.all([
-      supabase.from('expense_columns').update({ sort_order: b.sort_order }).eq('id', a.id),
-      supabase.from('expense_columns').update({ sort_order: a.sort_order }).eq('id', b.id),
-    ])
-    if (err1 || err2) {
-      setError('Ошибка изменения порядка: ' + (err1?.message || err2?.message))
+    const results = await Promise.all(
+      reordered.map((col, i) => supabase.from('expense_columns').update({ sort_order: i }).eq('id', col.id))
+    )
+    const failed = results.find((r) => r.error)
+    if (failed) {
+      setError('Ошибка изменения порядка: ' + failed.error.message)
       return
     }
     loadAll()
