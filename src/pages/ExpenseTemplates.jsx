@@ -72,6 +72,23 @@ export default function ExpenseTemplates() {
     loadTemplates()
   }
 
+  async function moveTemplate(index, direction) {
+    const targetIndex = index + direction
+    if (targetIndex < 0 || targetIndex >= templates.length) return
+    const a = templates[index]
+    const b = templates[targetIndex]
+    setError('')
+    const [{ error: err1 }, { error: err2 }] = await Promise.all([
+      supabase.from('expense_column_templates').update({ sort_order: b.sort_order }).eq('id', a.id),
+      supabase.from('expense_column_templates').update({ sort_order: a.sort_order }).eq('id', b.id),
+    ])
+    if (err1 || err2) {
+      setError('Ошибка изменения порядка: ' + (err1?.message || err2?.message))
+      return
+    }
+    loadTemplates()
+  }
+
   return (
     <div className="page">
       <p>
@@ -117,17 +134,19 @@ export default function ExpenseTemplates() {
         <table className="trips-table">
           <thead>
             <tr>
+              <th></th>
               <th>Название</th>
               <th>Тип</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
-            {templates.map((t) => {
+            {templates.map((t, index) => {
               const isEditing = editingId === t.id
               if (isEditing) {
                 return (
                   <tr key={t.id} className="editing-row">
+                    <td></td>
                     <td>
                       <input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
                     </td>
@@ -148,6 +167,24 @@ export default function ExpenseTemplates() {
               }
               return (
                 <tr key={t.id}>
+                  <td className="reorder-cell">
+                    <button
+                      className="secondary"
+                      onClick={() => moveTemplate(index, -1)}
+                      disabled={index === 0}
+                      title="Переместить вверх"
+                    >
+                      ↑
+                    </button>
+                    <button
+                      className="secondary"
+                      onClick={() => moveTemplate(index, 1)}
+                      disabled={index === templates.length - 1}
+                      title="Переместить вниз"
+                    >
+                      ↓
+                    </button>
+                  </td>
                   <td>{t.name}</td>
                   <td className="muted">{t.kind === 'computed' ? 'расчётная' : 'произвольная'}</td>
                   <td>

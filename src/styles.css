@@ -149,6 +149,14 @@ thead .sticky-col {
   outline-offset: -2px;
 }
 
+.reorder-cell {
+  white-space: nowrap;
+}
+.reorder-cell button {
+  padding: 4px 8px;
+  margin-right: 4px;
+}
+
 .num-cell {
   text-align: center;
   color: #666;
