@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../supabaseClient'
+import { useClub } from '../ClubContext'
 
 const COL_NAME = 'ФИО'
 const COL_ARRIVAL = 'Дата приезда'
@@ -29,6 +30,7 @@ function formatDateForDb(value) {
 // tripId, startOrder, existingPlayerIds (Set игроков, уже добавленных в эту
 // поездку — такие пропускаются, чтобы не ловить ошибку дубликата), onDone, onCancel
 export default function ImportPlayersModal({ tripId, startOrder, existingPlayerIds, onDone, onCancel }) {
+  const { currentClub } = useClub()
   const [rows, setRows] = useState([])
   const [error, setError] = useState('')
   const [importing, setImporting] = useState(false)
@@ -83,7 +85,10 @@ export default function ImportPlayersModal({ tripId, startOrder, existingPlayerI
     setError('')
 
     // Подтягиваем текущий состав, чтобы сопоставить по ФИО (без учёта регистра/пробелов)
-    const { data: roster, error: rosterErr } = await supabase.from('roster_players').select('id, full_name')
+    const { data: roster, error: rosterErr } = await supabase
+      .from('roster_players')
+      .select('id, full_name')
+      .eq('club_id', currentClub.id)
     if (rosterErr) {
       setImporting(false)
       setError('Ошибка загрузки состава: ' + rosterErr.message)
@@ -101,7 +106,7 @@ export default function ImportPlayersModal({ tripId, startOrder, existingPlayerI
       if (!playerId) {
         const { data: created, error: createErr } = await supabase
           .from('roster_players')
-          .insert({ full_name: row.full_name })
+          .insert({ club_id: currentClub.id, full_name: row.full_name })
           .select()
           .single()
         if (createErr) {

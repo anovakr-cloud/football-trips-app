@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
+import { useClub } from '../ClubContext'
 
 export default function ExpenseTemplates() {
+  const { currentClub } = useClub()
   const [templates, setTemplates] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -18,6 +20,7 @@ export default function ExpenseTemplates() {
     const { data, error } = await supabase
       .from('expense_column_templates')
       .select('*')
+      .eq('club_id', currentClub.id)
       .order('sort_order', { ascending: true })
     if (!error) setTemplates(data || [])
     setLoading(false)
@@ -25,7 +28,8 @@ export default function ExpenseTemplates() {
 
   useEffect(() => {
     loadTemplates()
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentClub.id])
 
   async function addTemplate(e) {
     e.preventDefault()
@@ -33,6 +37,7 @@ export default function ExpenseTemplates() {
     if (!name) return
     setError('')
     const { error } = await supabase.from('expense_column_templates').insert({
+      club_id: currentClub.id,
       name,
       kind: newKind,
       sort_order: templates.length,

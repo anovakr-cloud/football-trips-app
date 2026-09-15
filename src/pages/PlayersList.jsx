@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
+import { useClub } from '../ClubContext'
 
 export default function PlayersList() {
+  const { currentClub } = useClub()
   const [players, setPlayers] = useState([])
   const [squads, setSquads] = useState([])
   const [loading, setLoading] = useState(true)
@@ -12,20 +14,29 @@ export default function PlayersList() {
 
   async function loadPlayers() {
     setLoading(true)
-    const { data, error } = await supabase.from('roster_players').select('*').order('full_name', { ascending: true })
+    const { data, error } = await supabase
+      .from('roster_players')
+      .select('*')
+      .eq('club_id', currentClub.id)
+      .order('full_name', { ascending: true })
     if (!error) setPlayers(data || [])
     setLoading(false)
   }
 
   async function loadSquads() {
-    const { data } = await supabase.from('squads').select('*').order('sort_order', { ascending: true })
+    const { data } = await supabase
+      .from('squads')
+      .select('*')
+      .eq('club_id', currentClub.id)
+      .order('sort_order', { ascending: true })
     setSquads(data || [])
   }
 
   useEffect(() => {
     loadPlayers()
     loadSquads()
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentClub.id])
 
   async function addPlayer(e) {
     e.preventDefault()
@@ -42,7 +53,9 @@ export default function PlayersList() {
       }
     }
     setError('')
-    const { error } = await supabase.from('roster_players').insert({ full_name: name, default_squad: newDefaultSquad || null })
+    const { error } = await supabase
+      .from('roster_players')
+      .insert({ club_id: currentClub.id, full_name: name, default_squad: newDefaultSquad || null })
     if (error) {
       setError('Ошибка добавления: ' + error.message)
       return

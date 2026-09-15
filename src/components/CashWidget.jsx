@@ -1,14 +1,17 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import { roundUp } from '../calc'
+import { useClub } from '../ClubContext'
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10)
 }
 
-// Плавающий виджет в углу экрана — общая касса клуба (не привязана к
-// конкретной поездке или составу). Показывается на всех страницах.
+// Плавающий виджет в углу экрана — общая касса ТЕКУЩЕГО клуба (не
+// привязана к конкретной поездке или составу). Показывается на всех
+// страницах приложения, но только когда клуб выбран (см. App.jsx).
 export default function CashWidget() {
+  const { currentClub } = useClub()
   const [open, setOpen] = useState(false)
   const [entries, setEntries] = useState([])
   const [loading, setLoading] = useState(true)
@@ -21,6 +24,7 @@ export default function CashWidget() {
     const { data, error } = await supabase
       .from('cash_ledger')
       .select('*')
+      .eq('club_id', currentClub.id)
       .order('entry_date', { ascending: false })
       .order('created_at', { ascending: false })
     if (!error) setEntries(data || [])
@@ -29,7 +33,8 @@ export default function CashWidget() {
 
   useEffect(() => {
     load()
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentClub.id])
 
   const balance = entries.reduce((s, e) => s + (e.kind === 'deposit' ? Number(e.amount) : -Number(e.amount)), 0)
 
@@ -43,6 +48,7 @@ export default function CashWidget() {
     setError('')
     setSaving(true)
     const { error } = await supabase.from('cash_ledger').insert({
+      club_id: currentClub.id,
       kind: form.kind,
       amount,
       entry_date: form.entry_date || todayStr(),

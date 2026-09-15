@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import { calculateTrip } from '../calc'
+import { useClub } from '../ClubContext'
 
 export default function PlayerCard() {
   const { playerId } = useParams()
+  const { currentClub } = useClub()
   const [player, setPlayer] = useState(null)
   const [tripRows, setTripRows] = useState([]) // {trip, myRow}
   const [loading, setLoading] = useState(true)
@@ -20,6 +22,7 @@ export default function PlayerCard() {
       .from('roster_players')
       .select('*')
       .eq('id', playerId)
+      .eq('club_id', currentClub.id)
       .single()
     if (playerErr) {
       setError('Ошибка загрузки игрока: ' + playerErr.message)
@@ -104,7 +107,7 @@ export default function PlayerCard() {
   useEffect(() => {
     loadAll()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playerId])
+  }, [playerId, currentClub.id])
 
   async function saveName() {
     const { error } = await supabase.from('roster_players').update({ full_name: nameForm }).eq('id', playerId)

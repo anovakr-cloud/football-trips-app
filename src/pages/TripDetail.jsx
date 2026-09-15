@@ -5,9 +5,11 @@ import { calculateTrip, roundUp } from '../calc'
 import { exportTripToExcel } from '../exportExcel'
 import ImportPlayersModal from '../components/ImportPlayersModal'
 import { groupBySquad } from '../squads'
+import { useClub } from '../ClubContext'
 
 export default function TripDetail() {
   const { tripId } = useParams()
+  const { currentClub } = useClub()
   const [trip, setTrip] = useState(null)
   const [tripPlayers, setTripPlayers] = useState([]) // {id, player_id, full_name, arrival_date, departure_date}
   const [expenseColumns, setExpenseColumns] = useState([])
@@ -61,6 +63,7 @@ export default function TripDetail() {
       .from('trips')
       .select('*')
       .eq('id', tripId)
+      .eq('club_id', currentClub.id)
       .single()
     if (tripErr) {
       setError('Ошибка загрузки поездки: ' + tripErr.message)
@@ -145,6 +148,7 @@ export default function TripDetail() {
     const { data: rosterData } = await supabase
       .from('roster_players')
       .select('id, full_name, default_squad')
+      .eq('club_id', currentClub.id)
       .order('full_name', { ascending: true })
     setRosterOptions(rosterData || [])
 
@@ -155,12 +159,17 @@ export default function TripDetail() {
     const { data } = await supabase
       .from('expense_column_templates')
       .select('*')
+      .eq('club_id', currentClub.id)
       .order('sort_order', { ascending: true })
     setTemplates(data || [])
   }
 
   async function loadSquads() {
-    const { data } = await supabase.from('squads').select('*').order('sort_order', { ascending: true })
+    const { data } = await supabase
+      .from('squads')
+      .select('*')
+      .eq('club_id', currentClub.id)
+      .order('sort_order', { ascending: true })
     setSquads(data || [])
   }
 
@@ -169,7 +178,7 @@ export default function TripDetail() {
     loadTemplates()
     loadSquads()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tripId])
+  }, [tripId, currentClub.id])
 
   const squadNames = squads.map((sq) => sq.name)
 
@@ -440,7 +449,7 @@ export default function TripDetail() {
     setError('')
     const { data: rp, error: rpErr } = await supabase
       .from('roster_players')
-      .insert({ full_name: name, default_squad: addSquad || null })
+      .insert({ club_id: currentClub.id, full_name: name, default_squad: addSquad || null })
       .select()
       .single()
     if (rpErr) {

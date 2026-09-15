@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
+import { useClub } from '../ClubContext'
 
 export default function Squads() {
+  const { currentClub } = useClub()
   const [squads, setSquads] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -14,21 +16,26 @@ export default function Squads() {
 
   async function loadSquads() {
     setLoading(true)
-    const { data, error } = await supabase.from('squads').select('*').order('sort_order', { ascending: true })
+    const { data, error } = await supabase
+      .from('squads')
+      .select('*')
+      .eq('club_id', currentClub.id)
+      .order('sort_order', { ascending: true })
     if (!error) setSquads(data || [])
     setLoading(false)
   }
 
   useEffect(() => {
     loadSquads()
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentClub.id])
 
   async function addSquad(e) {
     e.preventDefault()
     const name = newName.trim()
     if (!name) return
     setError('')
-    const { error } = await supabase.from('squads').insert({ name, sort_order: squads.length })
+    const { error } = await supabase.from('squads').insert({ club_id: currentClub.id, name, sort_order: squads.length })
     if (error) {
       setError('Ошибка добавления: ' + error.message)
       return

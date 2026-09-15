@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
+import { useClub } from '../ClubContext'
 
 export default function TripsList() {
+  const { currentClub } = useClub()
   const [trips, setTrips] = useState([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -15,7 +17,11 @@ export default function TripsList() {
 
   async function loadTrips() {
     setLoading(true)
-    const { data, error } = await supabase.from('trips').select('*').order('start_date', { ascending: false })
+    const { data, error } = await supabase
+      .from('trips')
+      .select('*')
+      .eq('club_id', currentClub.id)
+      .order('start_date', { ascending: false })
     if (!error) setTrips(data)
     setLoading(false)
   }
@@ -24,6 +30,7 @@ export default function TripsList() {
     const { data } = await supabase
       .from('expense_column_templates')
       .select('*')
+      .eq('club_id', currentClub.id)
       .order('sort_order', { ascending: true })
     setTemplates(data || [])
   }
@@ -31,7 +38,8 @@ export default function TripsList() {
   useEffect(() => {
     loadTrips()
     loadTemplates()
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentClub.id])
 
   function toggleTemplate(id) {
     setSelectedTemplateIds((s) => {
@@ -53,6 +61,7 @@ export default function TripsList() {
     const { data: trip, error } = await supabase
       .from('trips')
       .insert({
+        club_id: currentClub.id,
         name: form.name,
         start_date: form.start_date,
         end_date: form.end_date,
@@ -97,7 +106,7 @@ export default function TripsList() {
   return (
     <div className="page">
       <div className="page-header">
-        <h1>Поездки</h1>
+        <h1>Поездки — {currentClub.name}</h1>
         <div>
           <Link to="/players">
             <button className="secondary">Состав</button>
@@ -107,6 +116,9 @@ export default function TripsList() {
           </Link>
           <Link to="/expense-templates">
             <button className="secondary">Стандартные статьи</button>
+          </Link>
+          <Link to="/clubs">
+            <button className="secondary">Клубы</button>
           </Link>
           <button onClick={() => setShowForm((v) => !v)}>{showForm ? 'Отмена' : '+ Новая поездка'}</button>
           <button className="secondary" onClick={handleLogout}>
