@@ -104,14 +104,16 @@ export default function PlayersList() {
         <table className="trips-table">
           <thead>
             <tr>
+              <th>№</th>
               <th>ФИО</th>
               <th>Состав по умолчанию</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
-            {players.map((p) => (
+            {players.map((p, idx) => (
               <tr key={p.id}>
+                <td className="num-cell">{idx + 1}</td>
                 <td>
                   <Link to={`/players/${p.id}`}>{p.full_name}</Link>
                 </td>

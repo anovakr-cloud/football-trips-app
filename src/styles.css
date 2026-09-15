@@ -149,6 +149,27 @@ thead .sticky-col {
   outline-offset: -2px;
 }
 
+.num-cell {
+  text-align: center;
+  color: #666;
+  width: 40px;
+}
+
+.squad-group-header td {
+  background: #dbe4f3;
+  color: #1a1a1a;
+  font-weight: 700;
+  padding: 6px 10px;
+}
+
+.group-summary-row td {
+  background: #f7f8fb;
+  font-weight: 600;
+}
+.group-summary-row .sticky-col {
+  background: #f7f8fb;
+}
+
 .squad-filter {
   display: flex;
   gap: 8px;

@@ -4,7 +4,7 @@ import { supabase } from '../supabaseClient'
 import { calculateTrip, roundUp } from '../calc'
 import { exportTripToExcel } from '../exportExcel'
 import ImportPlayersModal from '../components/ImportPlayersModal'
-import { SQUADS } from '../squads'
+import { SQUADS, groupBySquad } from '../squads'
 
 export default function TripDetail() {
   const { tripId } = useParams()
@@ -503,15 +503,14 @@ export default function TripDetail() {
 
   const visiblePlayers = squadFilter === 'all' ? tripPlayers : tripPlayers.filter((tp) => tp.squad === squadFilter)
 
-  let filteredSummary = null
-  if (calc) {
+  function summarizePlayers(players) {
     const byColumn = {}
     for (const col of expenseColumns) byColumn[col.id] = 0
     let total = 0
     let paid = 0
     let debt = 0
     let overpaid = 0
-    for (const tp of visiblePlayers) {
+    for (const tp of players) {
       const r = resultsByTripPlayerId[tp.id]
       if (!r) continue
       for (const col of expenseColumns) byColumn[col.id] += r.byColumn[col.id] ?? 0
@@ -520,8 +519,16 @@ export default function TripDetail() {
       debt += r.debt
       overpaid += r.overpaid
     }
-    filteredSummary = { byColumn, total, paid, debt, overpaid }
+    return { byColumn, total, paid, debt, overpaid }
   }
+
+  const filteredSummary = calc ? summarizePlayers(visiblePlayers) : null
+
+  // Группы по составам (сопровождающие всегда последними, без состава — в
+  // конце отдельным блоком) — сортировка по алфавиту и своя нумерация внутри
+  // каждой группы. Когда выбран конкретный фильтр состава, тут всегда будет
+  // максимум одна группа — просто нумерация с 1.
+  const squadGroups = groupBySquad(visiblePlayers)
 
   return (
     <div className="page">
@@ -814,6 +821,7 @@ export default function TripDetail() {
             <table className="players-table">
               <thead>
                 <tr>
+                  <th>№</th>
                   <th>ФИО</th>
                   <th>Состав</th>
                   <th>Приезд</th>
@@ -822,43 +830,53 @@ export default function TripDetail() {
                 </tr>
               </thead>
               <tbody>
-                {visiblePlayers.map((tp) => (
-                  <tr key={tp.id}>
-                    <td>
-                      <Link to={`/players/${tp.player_id}`}>{tp.full_name}</Link>
-                    </td>
-                    <td>
-                      <select value={tp.squad || ''} onChange={(e) => saveSquad(tp, e.target.value)}>
-                        <option value="">—</option>
-                        {SQUADS.map((sq) => (
-                          <option key={sq} value={sq}>
-                            {sq}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td>
-                      <input
-                        type="date"
-                        className="note-input"
-                        value={tp.arrival_date || ''}
-                        onChange={(e) => saveDates(tp, 'arrival_date', e.target.value)}
-                      />
-                    </td>
-                    <td>
-                      <input
-                        type="date"
-                        className="note-input"
-                        value={tp.departure_date || ''}
-                        onChange={(e) => saveDates(tp, 'departure_date', e.target.value)}
-                      />
-                    </td>
-                    <td>
-                      <button className="danger" onClick={() => removeFromTrip(tp)}>
-                        Убрать
-                      </button>
-                    </td>
-                  </tr>
+                {squadGroups.map((group) => (
+                  <Fragment key={group.name}>
+                    {squadGroups.length > 1 && (
+                      <tr className="squad-group-header">
+                        <td colSpan={6}>{group.name}</td>
+                      </tr>
+                    )}
+                    {group.players.map((tp, idx) => (
+                      <tr key={tp.id}>
+                        <td className="num-cell">{idx + 1}</td>
+                        <td>
+                          <Link to={`/players/${tp.player_id}`}>{tp.full_name}</Link>
+                        </td>
+                        <td>
+                          <select value={tp.squad || ''} onChange={(e) => saveSquad(tp, e.target.value)}>
+                            <option value="">—</option>
+                            {SQUADS.map((sq) => (
+                              <option key={sq} value={sq}>
+                                {sq}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td>
+                          <input
+                            type="date"
+                            className="note-input"
+                            value={tp.arrival_date || ''}
+                            onChange={(e) => saveDates(tp, 'arrival_date', e.target.value)}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="date"
+                            className="note-input"
+                            value={tp.departure_date || ''}
+                            onChange={(e) => saveDates(tp, 'departure_date', e.target.value)}
+                          />
+                        </td>
+                        <td>
+                          <button className="danger" onClick={() => removeFromTrip(tp)}>
+                            Убрать
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
@@ -869,6 +887,7 @@ export default function TripDetail() {
           <table className="players-table">
             <thead>
               <tr>
+                <th>№</th>
                 <th className="sticky-col">ФИО</th>
                 <th>Состав</th>
                 <th>Приезд</th>
@@ -886,12 +905,21 @@ export default function TripDetail() {
               </tr>
             </thead>
             <tbody>
-              {visiblePlayers.map((tp) => {
+              {squadGroups.map((group) => (
+                <Fragment key={group.name}>
+                  {squadGroups.length > 1 && (
+                    <tr className="squad-group-header">
+                      <td colSpan={10 + expenseColumns.length}>{group.name}</td>
+                    </tr>
+                  )}
+                  {group.players.map((tp, idx) => {
                 const r = resultsByTripPlayerId[tp.id]
                 const isPaymentsOpen = expandedPaymentsFor === tp.id
+                const rowNum = idx + 1
                 return (
                   <Fragment key={tp.id}>
                     <tr>
+                      <td className="num-cell">{rowNum}</td>
                       <td className="sticky-col">
                         <Link to={`/players/${tp.player_id}`}>{tp.full_name}</Link>
                       </td>
@@ -963,7 +991,7 @@ export default function TripDetail() {
                     </tr>
                     {isPaymentsOpen && (
                       <tr className="editing-row">
-                        <td colSpan={9 + expenseColumns.length}>
+                        <td colSpan={10 + expenseColumns.length}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <b>Платежи — {tp.full_name}</b>
                             <button className="secondary" onClick={() => setExpandedPaymentsFor(null)}>
@@ -1026,10 +1054,30 @@ export default function TripDetail() {
                     )}
                   </Fragment>
                 )
-              })}
+                  })}
+                  {squadGroups.length > 1 && (() => {
+                    const gs = summarizePlayers(group.players)
+                    return (
+                      <tr className="group-summary-row">
+                        <td colSpan={5} className="sticky-col">
+                          Итого — {group.name}
+                        </td>
+                        {expenseColumns.map((col) => (
+                          <td key={col.id}>{gs.byColumn[col.id] ?? 0}</td>
+                        ))}
+                        <td className="total-cell">{gs.total}</td>
+                        <td>{gs.paid}</td>
+                        <td>{gs.debt}</td>
+                        <td>{gs.overpaid}</td>
+                        <td></td>
+                      </tr>
+                    )
+                  })()}
+                </Fragment>
+              ))}
               {filteredSummary && (
                 <tr className="summary-row">
-                  <td colSpan={4} className="sticky-col">
+                  <td colSpan={5} className="sticky-col">
                     ИТОГО {squadFilter === 'all' ? 'по поездке' : `— ${squadFilter}`}
                   </td>
                   {expenseColumns.map((col) => (
