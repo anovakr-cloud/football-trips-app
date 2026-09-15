@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import { useClub } from '../ClubContext'
@@ -44,6 +44,32 @@ export default function ClubPicker() {
   const [editingId, setEditingId] = useState(null)
   const [editName, setEditName] = useState('')
   const [editLogoFile, setEditLogoFile] = useState(null)
+
+  // Создавать/переименовывать/удалять клубы (сам список клубов) может
+  // только администратор — см. supabase/migration_2026_09_club_admin_only.sql.
+  // Пока администраторов вообще нет (самая первая установка), это ещё
+  // никому не известно наперёд, поэтому даём управление всем — как только
+  // кто-то создаст первый клуб, он сам станет администратором, и дальше уже
+  // только он будет видеть эти кнопки.
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [adminChecked, setAdminChecked] = useState(false)
+
+  async function checkAdmin() {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    const { data, error: adminErr } = await supabase.from('app_admins').select('user_id')
+    if (!adminErr) {
+      const rows = data || []
+      setIsAdmin(rows.some((r) => r.user_id === user?.id) || rows.length === 0)
+    }
+    setAdminChecked(true)
+  }
+
+  useEffect(() => {
+    checkAdmin()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   function enterClub(id) {
     selectClub(id)
@@ -99,10 +125,18 @@ export default function ClubPicker() {
       .insert(DEFAULT_TEMPLATES.map((t) => ({ ...t, club_id: clubId })))
     await supabase.from('squads').insert(DEFAULT_SQUADS.map((s) => ({ ...s, club_id: clubId })))
 
+    // Бутстрап: если администраторов ещё не было вообще, этот клуб стал
+    // первым, и создатель становится администратором (разрешено политикой
+    // "bootstrap first admin", пока список app_admins пуст). Если админ уже
+    // есть (не мы) — insert просто откажет по защите доступа, это ожидаемо,
+    // молча игнорируем.
+    await supabase.from('app_admins').insert({ user_id: user.id })
+
     setSaving(false)
     setNewName('')
     setNewLogoFile(null)
     await reloadClubs()
+    await checkAdmin()
     enterClub(clubId)
   }
 
@@ -178,9 +212,22 @@ export default function ClubPicker() {
         </button>
       </div>
       <p className="hint">
-        Здесь выбираешь, с каким клубом сейчас работать, и управляешь списком клубов — можно добавить
-        новый, переименовать, поменять логотип (едва заметным фоном страниц этого клуба) или удалить пустой
-        клуб. Чтобы добавить в клуб ДРУГОГО человека — это делается вручную в Supabase, см. README.
+        Здесь выбираешь, с каким клубом сейчас работать.
+        {adminChecked && isAdmin && (
+          <>
+            {' '}
+            Как администратор ты также можешь добавить новый клуб, переименовать, поменять логотип (едва
+            заметным фоном страниц этого клуба) или удалить пустой клуб.
+          </>
+        )}
+        {adminChecked && !isAdmin && (
+          <>
+            {' '}
+            Добавлять, переименовывать и удалять клубы может только администратор — остальным доступна
+            работа внутри своего клуба (игроки, поездки, статьи расходов, составы, касса).
+          </>
+        )}
+        {' '}Чтобы добавить в клуб ДРУГОГО человека — это делается вручную в Supabase, см. README.
         {currentClub && (
           <>
             {' '}
@@ -198,7 +245,11 @@ export default function ClubPicker() {
       {loading ? (
         <p>Загрузка...</p>
       ) : clubs.length === 0 ? (
-        <p>У вас пока нет доступа ни к одному клубу. Создайте свой клуб ниже.</p>
+        <p>
+          {isAdmin
+            ? 'У вас пока нет доступа ни к одному клубу. Создайте свой клуб ниже.'
+            : 'У вас пока нет доступа ни к одному клубу. Обратитесь к администратору, чтобы вас добавили в нужный клуб.'}
+        </p>
       ) : (
         <table className="trips-table">
           <thead>
@@ -242,22 +293,26 @@ export default function ClubPicker() {
               return (
                 <tr key={c.id}>
                   <td className="reorder-cell">
-                    <button
-                      className="secondary"
-                      onClick={() => moveClub(index, -1)}
-                      disabled={index === 0}
-                      title="Переместить вверх"
-                    >
-                      ↑
-                    </button>
-                    <button
-                      className="secondary"
-                      onClick={() => moveClub(index, 1)}
-                      disabled={index === clubs.length - 1}
-                      title="Переместить вниз"
-                    >
-                      ↓
-                    </button>
+                    {isAdmin && (
+                      <>
+                        <button
+                          className="secondary"
+                          onClick={() => moveClub(index, -1)}
+                          disabled={index === 0}
+                          title="Переместить вверх"
+                        >
+                          ↑
+                        </button>
+                        <button
+                          className="secondary"
+                          onClick={() => moveClub(index, 1)}
+                          disabled={index === clubs.length - 1}
+                          title="Переместить вниз"
+                        >
+                          ↓
+                        </button>
+                      </>
+                    )}
                   </td>
                   <td>
                     {c.logo_url ? (
@@ -272,12 +327,16 @@ export default function ClubPicker() {
                   </td>
                   <td>
                     <button onClick={() => enterClub(c.id)}>Войти</button>
-                    <button className="secondary" onClick={() => startEdit(c)}>
-                      Изм.
-                    </button>
-                    <button className="danger" onClick={() => deleteClub(c)}>
-                      Удалить
-                    </button>
+                    {isAdmin && (
+                      <>
+                        <button className="secondary" onClick={() => startEdit(c)}>
+                          Изм.
+                        </button>
+                        <button className="danger" onClick={() => deleteClub(c)}>
+                          Удалить
+                        </button>
+                      </>
+                    )}
                   </td>
                 </tr>
               )
@@ -286,27 +345,35 @@ export default function ClubPicker() {
         </table>
       )}
 
-      <h3>Добавить клуб</h3>
-      <form className="card" onSubmit={addClub}>
-        <div className="grid">
-          <label>
-            Название клуба
-            <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Например: Урал-2015" />
-          </label>
-          <label>
-            Логотип (необязательно)
-            <input type="file" accept="image/*" onChange={(e) => setNewLogoFile(e.target.files?.[0] || null)} />
-          </label>
-        </div>
-        <p className="hint" style={{ marginTop: 0 }}>
-          Логотип показывается едва заметным водяным знаком на фоне страниц этого клуба — крупная картинка
-          на светлом фоне подойдёт лучше всего, JPG/PNG. Новому клубу сразу заводится стандартный набор
-          статей расходов и составы (Состав 1/2/Сопровождающие) — их можно будет поменять как обычно.
-        </p>
-        <button type="submit" disabled={saving} style={{ marginTop: 8 }}>
-          {saving ? 'Создаём...' : 'Создать клуб'}
-        </button>
-      </form>
+      {adminChecked && isAdmin && (
+        <>
+          <h3>Добавить клуб</h3>
+          <form className="card" onSubmit={addClub}>
+            <div className="grid">
+              <label>
+                Название клуба
+                <input
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="Например: Урал-2015"
+                />
+              </label>
+              <label>
+                Логотип (необязательно)
+                <input type="file" accept="image/*" onChange={(e) => setNewLogoFile(e.target.files?.[0] || null)} />
+              </label>
+            </div>
+            <p className="hint" style={{ marginTop: 0 }}>
+              Логотип показывается едва заметным водяным знаком на фоне страниц этого клуба — крупная картинка
+              на светлом фоне подойдёт лучше всего, JPG/PNG. Новому клубу сразу заводится стандартный набор
+              статей расходов и составы (Состав 1/2/Сопровождающие) — их можно будет поменять как обычно.
+            </p>
+            <button type="submit" disabled={saving} style={{ marginTop: 8 }}>
+              {saving ? 'Создаём...' : 'Создать клуб'}
+            </button>
+          </form>
+        </>
+      )}
     </div>
   )
 }

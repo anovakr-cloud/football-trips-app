@@ -44,6 +44,15 @@ create table if not exists club_members (
   primary key (user_id, club_id)
 );
 
+-- Администраторы приложения — только они могут создавать/переименовывать/
+-- удалять клубы (сам список клубов); работа с данными ВНУТРИ клуба (игроки,
+-- поездки, статьи расходов, составы, касса) по-прежнему открыта всем, кто
+-- состоит в club_members, и этой таблицы не касается.
+create table if not exists app_admins (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
 -- Постоянный состав (ростер) клуба — существует независимо от поездок
 create table if not exists roster_players (
   id uuid primary key default gen_random_uuid(),
@@ -179,6 +188,7 @@ create index if not exists idx_squads_club_id on squads(club_id);
 -- фронтенде: без нужного членства API базы не отдаст и не примет данные.
 alter table clubs enable row level security;
 alter table club_members enable row level security;
+alter table app_admins enable row level security;
 alter table roster_players enable row level security;
 alter table trips enable row level security;
 alter table trip_players enable row level security;
@@ -190,19 +200,35 @@ alter table cash_ledger enable row level security;
 alter table expense_column_templates enable row level security;
 alter table squads enable row level security;
 
--- Клуб виден/редактируется только тем, кто в нём состоит. Создать новый
--- клуб может любой авторизованный (курица-яйцо: до создания членства ещё
--- нет) — сразу после создания приложение само добавляет создателя в
--- club_members.
+-- Клуб виден тем, кто в нём состоит. А вот СОЗДАВАТЬ/переименовывать/
+-- удалять клубы может только администратор (app_admins) — это сам список
+-- клубов, а не данные внутри них. Есть запасной выход для самой первой
+-- установки (см. app_admins ниже): пока администраторов вообще нет, первый
+-- же вошедший может создать клуб и тем же движением стать администратором.
 create policy "select own clubs" on clubs
   for select using (exists (select 1 from club_members cm where cm.club_id = clubs.id and cm.user_id = auth.uid()));
 create policy "insert clubs" on clubs
-  for insert with check (auth.role() = 'authenticated');
+  for insert with check (
+    exists (select 1 from app_admins where user_id = auth.uid())
+    or not exists (select 1 from app_admins)
+  );
 create policy "update own clubs" on clubs
-  for update using (exists (select 1 from club_members cm where cm.club_id = clubs.id and cm.user_id = auth.uid()))
-  with check (exists (select 1 from club_members cm where cm.club_id = clubs.id and cm.user_id = auth.uid()));
+  for update using (exists (select 1 from app_admins where user_id = auth.uid()))
+  with check (exists (select 1 from app_admins where user_id = auth.uid()));
 create policy "delete own clubs" on clubs
-  for delete using (exists (select 1 from club_members cm where cm.club_id = clubs.id and cm.user_id = auth.uid()));
+  for delete using (exists (select 1 from app_admins where user_id = auth.uid()));
+
+-- Список администраторов виден любому авторизованному — это просто список
+-- служебных UUID (без email/имён), ничего личного не раскрывает. Открытое
+-- чтение нужно и чтобы приложение могло проверить "я админ?", и чтобы
+-- корректно работала проверка "администратора ещё вообще нет" при самой
+-- первой установке. Записать себя можно только пока список пуст (бутстрап
+-- самой первой установки) — дальше добавить ещё одного администратора можно
+-- только вручную через Table Editor в Supabase, сознательно.
+create policy "read app_admins" on app_admins
+  for select using (auth.role() = 'authenticated');
+create policy "bootstrap first admin" on app_admins
+  for insert with check (not exists (select 1 from app_admins));
 
 -- Свою строку членства видит только сам пользователь; добавить может
 -- только себя. Привязку ДРУГИХ людей к клубу администратор делает вручную
@@ -301,6 +327,7 @@ create policy "own club only - squads" on squads
 -- разрешает доступ, но без этих прав Supabase иногда всё равно отвечает
 -- "permission denied for table ..." на новых таблицах).
 grant usage on schema public to authenticated;
+grant select, insert on app_admins to authenticated;
 grant select, insert, update, delete on
   clubs,
   club_members,
@@ -327,6 +354,16 @@ create policy "club logos public read" on storage.objects
 create policy "club logos authenticated write" on storage.objects
   for all using (bucket_id = 'club-logos' and auth.role() = 'authenticated')
   with check (bucket_id = 'club-logos' and auth.role() = 'authenticated');
+
+-- Если пользователь с этой почтой уже существует (например, это твой же
+-- логин в Supabase Auth, которым пользуешься в самом приложении) — сразу
+-- делаем его администратором клубов. Если такого пользователя ещё нет
+-- (самая первая установка, аккаунт ещё не заведён) — ничего не делает, и
+-- тогда сработает запасной выход выше: первый же вошедший, кто создаст
+-- клуб, автоматически станет администратором.
+insert into app_admins (user_id)
+select id from auth.users where email = 'anovakr@gmail.com'
+on conflict (user_id) do nothing;
 
 -- Клубов на новую базу намеренно не заводим здесь: после первого входа в
 -- приложение (см. README, шаг 1, пункт 5) ты попадёшь на страницу «Клубы»
