@@ -1141,7 +1141,7 @@ export default function TripDetail() {
                           {r?.paid ?? 0} ₽
                         </button>
                       </td>
-                      <td>{r?.debt ?? 0}</td>
+                      <td className={r?.debt ? 'debt-owed' : ''}>{r?.debt ?? 0}</td>
                       <td>{r?.overpaid ?? 0}</td>
                       <td>
                         <button className="danger" onClick={() => removeFromTrip(tp)}>
@@ -1227,7 +1227,7 @@ export default function TripDetail() {
                         ))}
                         <td className="total-cell">{gs.total}</td>
                         <td>{gs.paid}</td>
-                        <td>{gs.debt}</td>
+                        <td className={gs.debt ? 'debt-owed' : ''}>{gs.debt}</td>
                         <td>{gs.overpaid}</td>
                         <td></td>
                       </tr>
@@ -1245,7 +1245,7 @@ export default function TripDetail() {
                   ))}
                   <td className="total-cell">{filteredSummary.total}</td>
                   <td>{filteredSummary.paid}</td>
-                  <td>{filteredSummary.debt}</td>
+                  <td className={filteredSummary.debt ? 'debt-owed' : ''}>{filteredSummary.debt}</td>
                   <td>{filteredSummary.overpaid}</td>
                   <td></td>
                 </tr>

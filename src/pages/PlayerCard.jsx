@@ -195,7 +195,7 @@ export default function PlayerCard() {
                 </td>
                 <td>{r.myRow?.total ?? 0}</td>
                 <td>{r.myRow?.paid ?? 0}</td>
-                <td>{r.myRow?.debt ?? 0}</td>
+                <td className={r.myRow?.debt ? 'debt-owed' : ''}>{r.myRow?.debt ?? 0}</td>
                 <td>{r.myRow?.overpaid ?? 0}</td>
               </tr>
             ))}

@@ -51,7 +51,10 @@ button.secondary {
   color: #1a1a1a;
 }
 button.danger {
-  background: #c0392b;
+  /* Тот же серый, что у «Изм.»/«ОК» и т.д. — красный на кнопках "Удалить"/
+     "Убрать" выглядел слишком тревожно, а не как обычное действие. */
+  background: #e2e5ea;
+  color: #1a1a1a;
 }
 button:disabled {
   opacity: 0.6;
@@ -107,6 +110,7 @@ th {
   font-weight: 600;
 }
 .total-cell { font-weight: 700; }
+.debt-owed { color: #c0392b; font-weight: 600; }
 .summary-row td { background: #eef1f8; font-weight: 700; }
 .editing-row td { background: #fffceb; }
 .note-input { margin-top: 4px; width: 100%; }
