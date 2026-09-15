@@ -1,31 +1,34 @@
-// Общий список составов — используется и в общем составе игроков (как
-// "основной" состав по умолчанию), и в конкретной поездке (можно
-// переопределить только для неё).
-// "Сопровождающие" — отдельная группа для взрослых (родителей), которые
-// периодически ездят на турниры вместе с детьми: ведутся в том же общем
-// списке, но помечаются этим составом и считаются отдельно от Состав 1/2.
-// Порядок в этом списке — это и порядок вывода блоков на экране/в Excel,
-// поэтому "Сопровождающие" всегда последние.
-export const SQUADS = ['Состав 1', 'Состав 2', 'Сопровождающие']
+// Список составов раньше был зашит здесь константой. Теперь пользователь
+// сам управляет им на странице «Составы» (добавляет/переименовывает/
+// удаляет/меняет порядок) — список хранится в таблице squads в базе,
+// каждая страница, которой он нужен, загружает его сама (как и со
+// стандартными статьями расходов).
 
 const collator = new Intl.Collator('ru')
 
-// Группирует список игроков (объекты с полями full_name и squad) по составам
-// в порядке SQUADS (сопровождающие — последними), внутри каждой группы —
-// по алфавиту. Пустые группы не включаются.
+// Группирует список игроков (объекты с полями full_name и squad) по
+// составам в порядке squadNames, внутри каждой группы — по алфавиту.
+// Пустые группы не включаются.
 // includeUnassigned=true — добавляет в конец отдельную группу "Без состава"
-// для тех, у кого состав не указан; false — такие игроки просто не попадают
-// ни в одну группу (используется для печати/выгрузки).
-export function groupBySquad(players, { includeUnassigned = true, unassignedLabel = 'Без состава' } = {}) {
+// для тех, у кого состав не указан ИЛИ у кого указан состав, которого уже
+// нет в текущем списке squadNames (например, состав удалили на странице
+// «Составы», а в старых поездках у игрока это название осталось) — такие
+// игроки не теряются, просто попадают в общую группу "без состава".
+// includeUnassigned=false — такие игроки вообще не попадают ни в одну
+// группу (используется для печати/выгрузки).
+export function groupBySquad(players, squadNames, { includeUnassigned = true, unassignedLabel = 'Без состава' } = {}) {
   const sortByName = (list) => [...list].sort((a, b) => collator.compare(a.full_name, b.full_name))
+  const activeNames = new Set(squadNames)
 
-  const groups = SQUADS.map((sq) => ({
-    name: sq,
-    players: sortByName(players.filter((p) => p.squad === sq)),
-  })).filter((g) => g.players.length > 0)
+  const groups = squadNames
+    .map((sq) => ({
+      name: sq,
+      players: sortByName(players.filter((p) => p.squad === sq)),
+    }))
+    .filter((g) => g.players.length > 0)
 
   if (includeUnassigned) {
-    const rest = sortByName(players.filter((p) => !p.squad))
+    const rest = sortByName(players.filter((p) => !p.squad || !activeNames.has(p.squad)))
     if (rest.length > 0) groups.push({ name: unassignedLabel, players: rest })
   }
 

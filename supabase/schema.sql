@@ -119,6 +119,19 @@ create table if not exists expense_column_templates (
   created_at timestamptz not null default now()
 );
 
+-- Список составов (Состав 1, Состав 2, Сопровождающие и т.д.) — редактируемый
+-- список, которым пользователь управляет сам на странице «Составы»:
+-- добавляет/переименовывает/удаляет/меняет порядок. Порядок в этом списке —
+-- это и порядок фильтров/блоков на экране, и в выгрузке Excel. Удаление
+-- состава не трогает уже сохранённые данные игроков в старых поездках — они
+-- просто перестают попадать в группировку и показываются как «Без состава».
+create table if not exists squads (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now()
+);
+
 -- Включаем Row Level Security и разрешаем доступ только авторизованным
 -- пользователям Supabase Auth (см. README — как создать свой логин/пароль).
 -- Это настоящая защита на уровне базы, а не просто экран с паролем во фронтенде:
@@ -132,6 +145,7 @@ alter table expense_values enable row level security;
 alter table payments enable row level security;
 alter table cash_ledger enable row level security;
 alter table expense_column_templates enable row level security;
+alter table squads enable row level security;
 
 create policy "authenticated only - roster_players" on roster_players
   for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
@@ -151,6 +165,8 @@ create policy "authenticated only - cash_ledger" on cash_ledger
   for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
 create policy "authenticated only - expense_column_templates" on expense_column_templates
   for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
+create policy "authenticated only - squads" on squads
+  for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
 
 -- Права на таблицы для роли authenticated — выдаём явно (RLS-политика выше
 -- разрешает доступ, но без этих прав Supabase иногда всё равно отвечает
@@ -165,7 +181,8 @@ grant select, insert, update, delete on
   expense_values,
   payments,
   cash_ledger,
-  expense_column_templates
+  expense_column_templates,
+  squads
 to authenticated;
 
 -- Стандартный набор статей расходов на новую базу — те же 8, что и в
@@ -179,3 +196,10 @@ insert into expense_column_templates (name, kind, sort_order) values
   ('Трансфер туда', 'manual', 5),
   ('Трансфер обратно', 'manual', 6),
   ('Тренерские', 'manual', 7);
+
+-- Составы на новую базу — Состав 1 / Состав 2 / Сопровождающие; дальше
+-- список можно менять на странице «Составы».
+insert into squads (name, sort_order) values
+  ('Состав 1', 0),
+  ('Состав 2', 1),
+  ('Сопровождающие', 2);

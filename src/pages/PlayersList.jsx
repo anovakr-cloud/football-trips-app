@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
-import { SQUADS } from '../squads'
 
 export default function PlayersList() {
   const [players, setPlayers] = useState([])
+  const [squads, setSquads] = useState([])
   const [loading, setLoading] = useState(true)
   const [newName, setNewName] = useState('')
   const [newDefaultSquad, setNewDefaultSquad] = useState('')
@@ -17,8 +17,14 @@ export default function PlayersList() {
     setLoading(false)
   }
 
+  async function loadSquads() {
+    const { data } = await supabase.from('squads').select('*').order('sort_order', { ascending: true })
+    setSquads(data || [])
+  }
+
   useEffect(() => {
     loadPlayers()
+    loadSquads()
   }, [])
 
   async function addPlayer(e) {
@@ -83,9 +89,9 @@ export default function PlayersList() {
             Состав по умолчанию (необязательно)
             <select value={newDefaultSquad} onChange={(e) => setNewDefaultSquad(e.target.value)}>
               <option value="">— не указан —</option>
-              {SQUADS.map((sq) => (
-                <option key={sq} value={sq}>
-                  {sq}
+              {squads.map((sq) => (
+                <option key={sq.id} value={sq.name}>
+                  {sq.name}
                 </option>
               ))}
             </select>
@@ -120,9 +126,9 @@ export default function PlayersList() {
                 <td>
                   <select value={p.default_squad || ''} onChange={(e) => saveDefaultSquad(p, e.target.value)}>
                     <option value="">— не указан —</option>
-                    {SQUADS.map((sq) => (
-                      <option key={sq} value={sq}>
-                        {sq}
+                    {squads.map((sq) => (
+                      <option key={sq.id} value={sq.name}>
+                        {sq.name}
                       </option>
                     ))}
                   </select>

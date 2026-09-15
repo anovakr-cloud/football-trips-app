@@ -102,6 +102,9 @@ export default function TripsList() {
           <Link to="/players">
             <button className="secondary">Состав</button>
           </Link>
+          <Link to="/squads">
+            <button className="secondary">Составы</button>
+          </Link>
           <Link to="/expense-templates">
             <button className="secondary">Стандартные статьи</button>
           </Link>

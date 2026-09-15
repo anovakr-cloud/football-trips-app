@@ -4,7 +4,7 @@ import { supabase } from '../supabaseClient'
 import { calculateTrip, roundUp } from '../calc'
 import { exportTripToExcel } from '../exportExcel'
 import ImportPlayersModal from '../components/ImportPlayersModal'
-import { SQUADS, groupBySquad } from '../squads'
+import { groupBySquad } from '../squads'
 
 export default function TripDetail() {
   const { tripId } = useParams()
@@ -25,6 +25,7 @@ export default function TripDetail() {
   const [newColumnForm, setNewColumnForm] = useState({ name: '', item_date: '', total_amount: '' })
 
   const [templates, setTemplates] = useState([])
+  const [squads, setSquads] = useState([])
   const [showTemplatePicker, setShowTemplatePicker] = useState(false)
   const [selectedTemplateIds, setSelectedTemplateIds] = useState(new Set())
   const [addingTemplates, setAddingTemplates] = useState(false)
@@ -158,11 +159,19 @@ export default function TripDetail() {
     setTemplates(data || [])
   }
 
+  async function loadSquads() {
+    const { data } = await supabase.from('squads').select('*').order('sort_order', { ascending: true })
+    setSquads(data || [])
+  }
+
   useEffect(() => {
     loadAll()
     loadTemplates()
+    loadSquads()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tripId])
+
+  const squadNames = squads.map((sq) => sq.name)
 
   const calc = useMemo(() => {
     if (!tripPlayers.length) return null
@@ -570,7 +579,7 @@ export default function TripDetail() {
 
   function handleExport() {
     if (!calc) return
-    exportTripToExcel(trip, calc, expenseColumns)
+    exportTripToExcel(trip, calc, expenseColumns, squadNames)
   }
 
   if (loading) return <div className="page">Загрузка...</div>
@@ -608,7 +617,7 @@ export default function TripDetail() {
   // конце отдельным блоком) — сортировка по алфавиту и своя нумерация внутри
   // каждой группы. Когда выбран конкретный фильтр состава, тут всегда будет
   // максимум одна группа — просто нумерация с 1.
-  const squadGroups = groupBySquad(visiblePlayers)
+  const squadGroups = groupBySquad(visiblePlayers, squadNames)
 
   return (
     <div className="page">
@@ -840,9 +849,9 @@ export default function TripDetail() {
                           onChange={(e) => setFillTargetDraft((d) => ({ ...d, [col.id]: e.target.value }))}
                         >
                           <option value="all">всем</option>
-                          {SQUADS.map((sq) => (
-                            <option key={sq} value={sq}>
-                              {sq}
+                          {squads.map((sq) => (
+                            <option key={sq.id} value={sq.name}>
+                              {sq.name}
                             </option>
                           ))}
                         </select>
@@ -906,13 +915,13 @@ export default function TripDetail() {
             >
               Все ({tripPlayers.length})
             </button>
-            {SQUADS.map((sq) => (
+            {squads.map((sq) => (
               <button
-                key={sq}
-                className={squadFilter === sq ? 'active' : 'secondary'}
-                onClick={() => setSquadFilter(sq)}
+                key={sq.id}
+                className={squadFilter === sq.name ? 'active' : 'secondary'}
+                onClick={() => setSquadFilter(sq.name)}
               >
-                {sq} ({tripPlayers.filter((tp) => tp.squad === sq).length})
+                {sq.name} ({tripPlayers.filter((tp) => tp.squad === sq.name).length})
               </button>
             ))}
           </div>
@@ -927,9 +936,9 @@ export default function TripDetail() {
                   onChange={(e) => setBulkPaymentForm({ ...bulkPaymentForm, squad: e.target.value })}
                 >
                   <option value="all">Всем игрокам поездки</option>
-                  {SQUADS.map((sq) => (
-                    <option key={sq} value={sq}>
-                      {sq}
+                  {squads.map((sq) => (
+                    <option key={sq.id} value={sq.name}>
+                      {sq.name}
                     </option>
                   ))}
                 </select>
@@ -1006,9 +1015,9 @@ export default function TripDetail() {
                         <td>
                           <select value={tp.squad || ''} onChange={(e) => saveSquad(tp, e.target.value)}>
                             <option value="">—</option>
-                            {SQUADS.map((sq) => (
-                              <option key={sq} value={sq}>
-                                {sq}
+                            {squads.map((sq) => (
+                              <option key={sq.id} value={sq.name}>
+                                {sq.name}
                               </option>
                             ))}
                           </select>
@@ -1086,9 +1095,9 @@ export default function TripDetail() {
                       <td>
                         <select value={tp.squad || ''} onChange={(e) => saveSquad(tp, e.target.value)}>
                           <option value="">—</option>
-                          {SQUADS.map((sq) => (
-                            <option key={sq} value={sq}>
-                              {sq}
+                          {squads.map((sq) => (
+                            <option key={sq.id} value={sq.name}>
+                              {sq.name}
                             </option>
                           ))}
                         </select>
@@ -1259,9 +1268,9 @@ export default function TripDetail() {
       <div className="card">
         <div className="bulk-add-squad-row">
           <span className="muted">Добавить сразу весь состав:</span>
-          {SQUADS.map((sq) => (
-            <button key={sq} type="button" className="secondary" onClick={() => bulkAddFromSquad(sq)}>
-              + {sq}
+          {squads.map((sq) => (
+            <button key={sq.id} type="button" className="secondary" onClick={() => bulkAddFromSquad(sq.name)}>
+              + {sq.name}
             </button>
           ))}
         </div>
@@ -1297,9 +1306,9 @@ export default function TripDetail() {
               В какой состав (необязательно)
               <select value={addSquad} onChange={(e) => setAddSquad(e.target.value)}>
                 <option value="">— не указан —</option>
-                {SQUADS.map((sq) => (
-                  <option key={sq} value={sq}>
-                    {sq}
+                {squads.map((sq) => (
+                  <option key={sq.id} value={sq.name}>
+                    {sq.name}
                   </option>
                 ))}
               </select>

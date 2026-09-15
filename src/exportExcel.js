@@ -24,13 +24,13 @@ function totalsRow(label, players, expenseColumns) {
 
 // Выгружает таблицу поездки (статьи расходов + итоги) в .xlsx.
 // Если у кого-то из игроков указан состав — выгрузка делится на блоки по
-// составам (Состав 1 / Состав 2 / Сопровождающие), внутри блока — по
-// алфавиту, со своей нумерацией с 1; игроки без состава в этом случае в
+// составам (в том порядке, что задан на странице «Составы»), внутри блока —
+// по алфавиту, со своей нумерацией с 1; игроки без состава в этом случае в
 // выгрузку не попадают. Если состав не указан вообще ни у кого — выгружается
 // как раньше, единым списком по алфавиту, чтобы ничего не потерять.
-export function exportTripToExcel(trip, calc, expenseColumns) {
+export function exportTripToExcel(trip, calc, expenseColumns, squadNames) {
   const groupsHeader = ['№', 'ФИО', ...expenseColumns.map((c) => c.name), 'Итого', 'Оплачено', 'Долг', 'Переплата']
-  const groups = groupBySquad(calc.players, { includeUnassigned: false })
+  const groups = groupBySquad(calc.players, squadNames || [], { includeUnassigned: false })
 
   let sheetData
 
