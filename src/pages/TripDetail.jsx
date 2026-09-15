@@ -294,6 +294,23 @@ export default function TripDetail() {
     loadAll()
   }
 
+  async function moveColumn(index, direction) {
+    const targetIndex = index + direction
+    if (targetIndex < 0 || targetIndex >= expenseColumns.length) return
+    const a = expenseColumns[index]
+    const b = expenseColumns[targetIndex]
+    setError('')
+    const [{ error: err1 }, { error: err2 }] = await Promise.all([
+      supabase.from('expense_columns').update({ sort_order: b.sort_order }).eq('id', a.id),
+      supabase.from('expense_columns').update({ sort_order: a.sort_order }).eq('id', b.id),
+    ])
+    if (err1 || err2) {
+      setError('Ошибка изменения порядка: ' + (err1?.message || err2?.message))
+      return
+    }
+    loadAll()
+  }
+
   async function toggleParticipant(col, tripPlayerId) {
     const set = participantsByColumn.get(col.id) || new Set()
     if (set.has(tripPlayerId)) {
@@ -722,9 +739,15 @@ export default function TripDetail() {
       )}
 
       {expenseColumns.length > 0 && (
-        <table className="players-table">
+        <>
+          <p className="hint" style={{ marginTop: 0 }}>
+            Стрелками ↑/↓ можно менять порядок статей — в таком же порядке столбцы выстроятся и в большой
+            таблице по игрокам ниже.
+          </p>
+          <table className="players-table">
           <thead>
             <tr>
+              <th></th>
               <th>Статья</th>
               <th>Тип</th>
               <th>Дата</th>
@@ -734,12 +757,13 @@ export default function TripDetail() {
             </tr>
           </thead>
           <tbody>
-            {expenseColumns.map((col) => {
+            {expenseColumns.map((col, index) => {
               const isEditing = editingColumnId === col.id
               const count = (participantsByColumn.get(col.id) || new Set()).size
               if (isEditing) {
                 return (
                   <tr key={col.id} className="editing-row">
+                    <td></td>
                     <td>
                       <input value={editColumnForm.name} onChange={(e) => setEditColumnForm({ ...editColumnForm, name: e.target.value })} />
                     </td>
@@ -766,6 +790,24 @@ export default function TripDetail() {
               }
               return (
                 <tr key={col.id}>
+                  <td className="reorder-cell">
+                    <button
+                      className="secondary"
+                      onClick={() => moveColumn(index, -1)}
+                      disabled={index === 0}
+                      title="Переместить вверх"
+                    >
+                      ↑
+                    </button>
+                    <button
+                      className="secondary"
+                      onClick={() => moveColumn(index, 1)}
+                      disabled={index === expenseColumns.length - 1}
+                      title="Переместить вниз"
+                    >
+                      ↓
+                    </button>
+                  </td>
                   <td>{col.name}</td>
                   <td className="muted">{col.kind === 'computed' ? 'расчётная' : 'произвольная'}</td>
                   <td>{col.item_date || '—'}</td>
@@ -822,7 +864,8 @@ export default function TripDetail() {
               )
             })}
           </tbody>
-        </table>
+          </table>
+        </>
       )}
 
       {/* ---------- Игроки и расходы ---------- */}
