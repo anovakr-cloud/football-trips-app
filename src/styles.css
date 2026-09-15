@@ -149,6 +149,118 @@ thead .sticky-col {
   outline-offset: -2px;
 }
 
+.squad-filter {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 8px 0 16px;
+}
+.squad-filter button {
+  background: #e2e5ea;
+  color: #1a1a1a;
+}
+.squad-filter button.active {
+  background: #2f5fd0;
+  color: white;
+}
+
+.bulk-payment-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+.bulk-payment-row label {
+  min-width: 120px;
+}
+
+.cash-widget-pill {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 50;
+  background: #1e824c;
+  color: white;
+  border-radius: 999px;
+  padding: 10px 18px;
+  font-weight: 600;
+  font-size: 14px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+  margin-right: 0;
+}
+.cash-widget-panel {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 50;
+  background: white;
+  width: 320px;
+  max-width: calc(100vw - 32px);
+  max-height: 75vh;
+  overflow-y: auto;
+  border-radius: 10px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+  padding: 14px;
+}
+.cash-widget-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.cash-widget-header button {
+  margin-right: 0;
+  padding: 2px 10px;
+}
+.cash-widget-balance {
+  font-size: 18px;
+  margin: 4px 0 12px;
+}
+.cash-widget-form {
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #eee;
+}
+.cash-widget-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.cash-widget-row select,
+.cash-widget-row input {
+  flex: 1;
+  min-width: 0;
+}
+.cash-widget-history {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cash-widget-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.cash-widget-note {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cash-in {
+  color: #1e824c;
+  font-weight: 600;
+}
+.cash-out {
+  color: #c0392b;
+  font-weight: 600;
+}
+.cash-widget-entry .danger {
+  margin-right: 0;
+  padding: 2px 8px;
+}
+
 .login-screen {
   display: flex;
   align-items: center;

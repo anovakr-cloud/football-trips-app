@@ -5,6 +5,8 @@ import { calculateTrip, roundUp } from '../calc'
 import { exportTripToExcel } from '../exportExcel'
 import ImportPlayersModal from '../components/ImportPlayersModal'
 
+const SQUADS = ['Состав 1', 'Состав 2']
+
 export default function TripDetail() {
   const { tripId } = useParams()
   const [trip, setTrip] = useState(null)
@@ -34,6 +36,16 @@ export default function TripDetail() {
 
   const [showImport, setShowImport] = useState(false)
   const [addPlayerName, setAddPlayerName] = useState('')
+  const [addSquad, setAddSquad] = useState('')
+
+  const [squadFilter, setSquadFilter] = useState('all') // 'all' | 'Состав 1' | 'Состав 2'
+  const [bulkPaymentForm, setBulkPaymentForm] = useState({
+    squad: 'all',
+    amount: '',
+    paid_at: new Date().toISOString().slice(0, 10),
+    note: '',
+  })
+  const [bulkSaving, setBulkSaving] = useState(false)
 
   async function loadAll() {
     setLoading(true)
@@ -53,7 +65,7 @@ export default function TripDetail() {
 
     const { data: tpData, error: tpErr } = await supabase
       .from('trip_players')
-      .select('id, player_id, arrival_date, departure_date, sort_order, roster_players(full_name)')
+      .select('id, player_id, arrival_date, departure_date, squad, sort_order, roster_players(full_name)')
       .eq('trip_id', tripId)
       .order('sort_order', { ascending: true })
     if (tpErr) {
@@ -67,6 +79,7 @@ export default function TripDetail() {
       full_name: tp.roster_players?.full_name || '(без имени)',
       arrival_date: tp.arrival_date,
       departure_date: tp.departure_date,
+      squad: tp.squad || '',
     }))
     setTripPlayers(players)
 
@@ -314,6 +327,7 @@ export default function TripDetail() {
     const { error } = await supabase.from('trip_players').insert({
       trip_id: tripId,
       player_id: rosterPlayerId,
+      squad: addSquad || null,
       sort_order: tripPlayers.length,
     })
     if (error) {
@@ -340,6 +354,7 @@ export default function TripDetail() {
     const { error: tpErr } = await supabase.from('trip_players').insert({
       trip_id: tripId,
       player_id: rp.id,
+      squad: addSquad || null,
       sort_order: tripPlayers.length,
     })
     if (tpErr) {
@@ -360,6 +375,14 @@ export default function TripDetail() {
     await supabase
       .from('trip_players')
       .update({ [field]: value || null })
+      .eq('id', tp.id)
+    loadAll()
+  }
+
+  async function saveSquad(tp, value) {
+    await supabase
+      .from('trip_players')
+      .update({ squad: value || null })
       .eq('id', tp.id)
     loadAll()
   }
@@ -398,6 +421,41 @@ export default function TripDetail() {
     loadAll()
   }
 
+  async function bulkAddPayment(e) {
+    e.preventDefault()
+    const amount = Number(bulkPaymentForm.amount) || 0
+    if (!amount) {
+      setError('Укажите сумму платежа')
+      return
+    }
+    const targets =
+      bulkPaymentForm.squad === 'all' ? tripPlayers : tripPlayers.filter((tp) => tp.squad === bulkPaymentForm.squad)
+    if (targets.length === 0) {
+      setError('В выбранной группе нет игроков')
+      return
+    }
+    const label = bulkPaymentForm.squad === 'all' ? 'всем игрокам поездки' : `составу «${bulkPaymentForm.squad}»`
+    if (!confirm(`Внести платёж ${amount} ₽ от ${bulkPaymentForm.paid_at || 'сегодня'} ${label} — ${targets.length} чел.?`)) {
+      return
+    }
+    setError('')
+    setBulkSaving(true)
+    const rows = targets.map((tp) => ({
+      trip_player_id: tp.id,
+      amount,
+      paid_at: bulkPaymentForm.paid_at || new Date().toISOString().slice(0, 10),
+      note: bulkPaymentForm.note || null,
+    }))
+    const { error } = await supabase.from('payments').insert(rows)
+    setBulkSaving(false)
+    if (error) {
+      setError('Ошибка массовой оплаты: ' + error.message)
+      return
+    }
+    setBulkPaymentForm((f) => ({ ...f, amount: '', note: '' }))
+    loadAll()
+  }
+
   // ---------- Excel ----------
 
   function handleExport() {
@@ -409,6 +467,28 @@ export default function TripDetail() {
   if (!trip) return <div className="page">Поездка не найдена.</div>
 
   const rosterNotInTrip = rosterOptions.filter((rp) => !tripPlayers.some((tp) => tp.player_id === rp.id))
+
+  const visiblePlayers = squadFilter === 'all' ? tripPlayers : tripPlayers.filter((tp) => tp.squad === squadFilter)
+
+  let filteredSummary = null
+  if (calc) {
+    const byColumn = {}
+    for (const col of expenseColumns) byColumn[col.id] = 0
+    let total = 0
+    let paid = 0
+    let debt = 0
+    let overpaid = 0
+    for (const tp of visiblePlayers) {
+      const r = resultsByTripPlayerId[tp.id]
+      if (!r) continue
+      for (const col of expenseColumns) byColumn[col.id] += r.byColumn[col.id] ?? 0
+      total += r.total
+      paid += r.paid
+      debt += r.debt
+      overpaid += r.overpaid
+    }
+    filteredSummary = { byColumn, total, paid, debt, overpaid }
+  }
 
   return (
     <div className="page">
@@ -617,6 +697,78 @@ export default function TripDetail() {
         />
       )}
 
+      {tripPlayers.length > 0 && (
+        <>
+          <div className="squad-filter">
+            <button
+              className={squadFilter === 'all' ? 'active' : 'secondary'}
+              onClick={() => setSquadFilter('all')}
+            >
+              Все ({tripPlayers.length})
+            </button>
+            {SQUADS.map((sq) => (
+              <button
+                key={sq}
+                className={squadFilter === sq ? 'active' : 'secondary'}
+                onClick={() => setSquadFilter(sq)}
+              >
+                {sq} ({tripPlayers.filter((tp) => tp.squad === sq).length})
+              </button>
+            ))}
+          </div>
+
+          <div className="card">
+            <h3 style={{ marginTop: 0 }}>Внести оплату сразу нескольким игрокам</h3>
+            <form onSubmit={bulkAddPayment} className="bulk-payment-row">
+              <label>
+                Кому
+                <select
+                  value={bulkPaymentForm.squad}
+                  onChange={(e) => setBulkPaymentForm({ ...bulkPaymentForm, squad: e.target.value })}
+                >
+                  <option value="all">Всем игрокам поездки</option>
+                  {SQUADS.map((sq) => (
+                    <option key={sq} value={sq}>
+                      {sq}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Сумма, ₽
+                <input
+                  type="number"
+                  value={bulkPaymentForm.amount}
+                  onChange={(e) => setBulkPaymentForm({ ...bulkPaymentForm, amount: e.target.value })}
+                />
+              </label>
+              <label>
+                Дата
+                <input
+                  type="date"
+                  value={bulkPaymentForm.paid_at}
+                  onChange={(e) => setBulkPaymentForm({ ...bulkPaymentForm, paid_at: e.target.value })}
+                />
+              </label>
+              <label>
+                Комментарий
+                <input
+                  value={bulkPaymentForm.note}
+                  onChange={(e) => setBulkPaymentForm({ ...bulkPaymentForm, note: e.target.value })}
+                />
+              </label>
+              <button type="submit" disabled={bulkSaving}>
+                {bulkSaving ? 'Сохраняем...' : 'Внести платёж всем'}
+              </button>
+            </form>
+            <p className="hint" style={{ marginTop: 8 }}>
+              Каждому игроку из выбранной группы добавится одинаковый платёж на эту сумму и дату — потом при
+              необходимости можно поправить или удалить отдельным игрокам через «Оплачено» в таблице.
+            </p>
+          </div>
+        </>
+      )}
+
       {expenseColumns.length === 0 ? (
         <p className="hint">Сначала добавь хотя бы одну статью расходов выше — тогда появится таблица по игрокам.</p>
       ) : (
@@ -625,6 +777,7 @@ export default function TripDetail() {
             <thead>
               <tr>
                 <th className="sticky-col">ФИО</th>
+                <th>Состав</th>
                 <th>Приезд</th>
                 <th>Отъезд</th>
                 {expenseColumns.map((col) => (
@@ -640,7 +793,7 @@ export default function TripDetail() {
               </tr>
             </thead>
             <tbody>
-              {tripPlayers.map((tp) => {
+              {visiblePlayers.map((tp) => {
                 const r = resultsByTripPlayerId[tp.id]
                 const isPaymentsOpen = expandedPaymentsFor === tp.id
                 return (
@@ -648,6 +801,16 @@ export default function TripDetail() {
                     <tr>
                       <td className="sticky-col">
                         <Link to={`/players/${tp.player_id}`}>{tp.full_name}</Link>
+                      </td>
+                      <td>
+                        <select value={tp.squad || ''} onChange={(e) => saveSquad(tp, e.target.value)}>
+                          <option value="">—</option>
+                          {SQUADS.map((sq) => (
+                            <option key={sq} value={sq}>
+                              {sq}
+                            </option>
+                          ))}
+                        </select>
                       </td>
                       <td>
                         <input
@@ -707,7 +870,7 @@ export default function TripDetail() {
                     </tr>
                     {isPaymentsOpen && (
                       <tr className="editing-row">
-                        <td colSpan={7 + expenseColumns.length}>
+                        <td colSpan={9 + expenseColumns.length}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <b>Платежи — {tp.full_name}</b>
                             <button className="secondary" onClick={() => setExpandedPaymentsFor(null)}>
@@ -771,16 +934,18 @@ export default function TripDetail() {
                   </Fragment>
                 )
               })}
-              {calc && (
+              {filteredSummary && (
                 <tr className="summary-row">
-                  <td colSpan={3} className="sticky-col">ИТОГО по поездке</td>
+                  <td colSpan={4} className="sticky-col">
+                    ИТОГО {squadFilter === 'all' ? 'по поездке' : `— ${squadFilter}`}
+                  </td>
                   {expenseColumns.map((col) => (
-                    <td key={col.id}>{calc.summary.byColumn[col.id] ?? 0}</td>
+                    <td key={col.id}>{filteredSummary.byColumn[col.id] ?? 0}</td>
                   ))}
-                  <td className="total-cell">{calc.summary.total}</td>
-                  <td>{calc.summary.paid}</td>
-                  <td>{calc.summary.debt}</td>
-                  <td>{calc.summary.overpaid}</td>
+                  <td className="total-cell">{filteredSummary.total}</td>
+                  <td>{filteredSummary.paid}</td>
+                  <td>{filteredSummary.debt}</td>
+                  <td>{filteredSummary.overpaid}</td>
                   <td></td>
                 </tr>
               )}
@@ -793,7 +958,18 @@ export default function TripDetail() {
       <div className="card">
         <div className="grid">
           <label>
-            Из состава
+            В какой состав (необязательно)
+            <select value={addSquad} onChange={(e) => setAddSquad(e.target.value)}>
+              <option value="">— не указан —</option>
+              {SQUADS.map((sq) => (
+                <option key={sq} value={sq}>
+                  {sq}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Из общего состава
             <select onChange={(e) => addExistingPlayer(e.target.value)} value="">
               <option value="">— выбрать —</option>
               {rosterNotInTrip.map((rp) => (
@@ -819,7 +995,9 @@ export default function TripDetail() {
         Клик по ячейке расчётной статьи включает/выключает игрока в ней — сумма делится поровну между
         включёнными и округляется вверх до целого рубля. Произвольные статьи — просто впиши число, оно
         сохранится, когда уберёшь курсор из поля. «Оплачено» — кнопка со списком платежей по датам, клик
-        открывает/закрывает список под строкой.
+        открывает/закрывает список под строкой, крестик в панели платежей закрывает её обратно. Состав у
+        игрока — только для этой поездки, в другой поездке можно выбрать другой (кнопки-фильтры и итоговая
+        строка выше учитывают выбранный состав).
       </p>
     </div>
   )

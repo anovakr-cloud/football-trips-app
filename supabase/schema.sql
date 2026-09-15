@@ -45,6 +45,7 @@ create table if not exists trip_players (
   player_id uuid not null references roster_players(id) on delete cascade,
   arrival_date date,     -- справочно, только чтобы помнить, кто когда приехал
   departure_date date,   -- справочно, только чтобы помнить, кто когда уехал
+  squad text,            -- 'Состав 1' / 'Состав 2' / пусто — только для ЭТОЙ поездки
   sort_order integer not null default 0,
   created_at timestamptz not null default now(),
   unique (trip_id, player_id)
@@ -94,6 +95,17 @@ create table if not exists payments (
 
 create index if not exists idx_payments_trip_player_id on payments(trip_player_id);
 
+-- Касса клуба — общий учёт поступлений/расходов, не привязан к конкретной
+-- поездке или составу.
+create table if not exists cash_ledger (
+  id uuid primary key default gen_random_uuid(),
+  entry_date date not null default current_date,
+  amount numeric(10,2) not null,
+  kind text not null check (kind in ('deposit', 'expense')),
+  note text,
+  created_at timestamptz not null default now()
+);
+
 -- Включаем Row Level Security и разрешаем доступ только авторизованным
 -- пользователям Supabase Auth (см. README — как создать свой логин/пароль).
 -- Это настоящая защита на уровне базы, а не просто экран с паролем во фронтенде:
@@ -105,6 +117,7 @@ alter table expense_columns enable row level security;
 alter table expense_participants enable row level security;
 alter table expense_values enable row level security;
 alter table payments enable row level security;
+alter table cash_ledger enable row level security;
 
 create policy "authenticated only - roster_players" on roster_players
   for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
@@ -120,3 +133,20 @@ create policy "authenticated only - expense_values" on expense_values
   for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
 create policy "authenticated only - payments" on payments
   for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
+create policy "authenticated only - cash_ledger" on cash_ledger
+  for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
+
+-- Права на таблицы для роли authenticated — выдаём явно (RLS-политика выше
+-- разрешает доступ, но без этих прав Supabase иногда всё равно отвечает
+-- "permission denied for table ..." на новых таблицах).
+grant usage on schema public to authenticated;
+grant select, insert, update, delete on
+  roster_players,
+  trips,
+  trip_players,
+  expense_columns,
+  expense_participants,
+  expense_values,
+  payments,
+  cash_ledger
+to authenticated;
