@@ -34,6 +34,7 @@ export default function TripDetail() {
 
   const [manualDraft, setManualDraft] = useState({}) // `${columnId}:${tripPlayerId}` -> string
   const [fillDraft, setFillDraft] = useState({}) // columnId -> string
+  const [fillTargetDraft, setFillTargetDraft] = useState({}) // columnId -> 'all' | squad name
 
   const [expandedPaymentsFor, setExpandedPaymentsFor] = useState(null)
   const [newPaymentForm, setNewPaymentForm] = useState({ amount: '', paid_at: '', note: '' })
@@ -353,11 +354,18 @@ export default function TripDetail() {
   async function fillAllManual(col) {
     const raw = fillDraft[col.id]
     const amount = Number(raw) || 0
-    if (tripPlayers.length === 0) return
-    if (!confirm(`Проставить ${amount} ₽ всем ${tripPlayers.length} игрокам в статье «${col.name}»? Текущие значения будут перезаписаны.`)) {
+    const target = fillTargetDraft[col.id] || 'all'
+    const targets = target === 'all' ? tripPlayers : tripPlayers.filter((tp) => tp.squad === target)
+    if (targets.length === 0) {
+      setError(target === 'all' ? 'В поездке пока нет игроков' : `В составе «${target}» нет игроков в этой поездке`)
       return
     }
-    const rows = tripPlayers.map((tp) => ({ column_id: col.id, trip_player_id: tp.id, amount }))
+    const label = target === 'all' ? `всем ${targets.length} игрокам` : `составу «${target}» (${targets.length} чел.)`
+    if (!confirm(`Проставить ${amount} ₽ ${label} в статье «${col.name}»? Текущие значения будут перезаписаны.`)) {
+      return
+    }
+    setError('')
+    const rows = targets.map((tp) => ({ column_id: col.id, trip_player_id: tp.id, amount }))
     await supabase.from('expense_values').upsert(rows, { onConflict: 'column_id,trip_player_id' })
     setFillDraft((d) => ({ ...d, [col.id]: '' }))
     loadAll()
@@ -775,7 +783,20 @@ export default function TripDetail() {
                       </>
                     ) : (
                       <span className="muted">
-                        заполнить всем:{' '}
+                        заполнить:{' '}
+                        <select
+                          className="note-input"
+                          style={{ width: 130, display: 'inline-block' }}
+                          value={fillTargetDraft[col.id] || 'all'}
+                          onChange={(e) => setFillTargetDraft((d) => ({ ...d, [col.id]: e.target.value }))}
+                        >
+                          <option value="all">всем</option>
+                          {SQUADS.map((sq) => (
+                            <option key={sq} value={sq}>
+                              {sq}
+                            </option>
+                          ))}
+                        </select>
                         <input
                           className="note-input"
                           style={{ width: 90, display: 'inline-block' }}
